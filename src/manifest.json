@@ -2,7 +2,8 @@
   "manifest_version": 3,
   "name": "WhatsApp Notification Sound Changer",
   "version": "2.0",
-  "description": "Set a custom notification sound for WhatsApp!",
+  "description": "Set a custom notification sound for WhatsApp, per contact!",
+  "minimum_chrome_version": "111",
   "author": {
     "email": "extensions@mejia.dev"
   },
@@ -16,29 +17,22 @@
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "permissions": [
-    "storage","tabs","offscreen"
-  ],
-  "host_permissions": [
-    "https://web.whatsapp.com/*"
-  ],
+  "permissions": ["storage"],
+  "host_permissions": ["https://web.whatsapp.com/*"],
   "background": {
-    "service_worker": "scripts/service-worker.js"
+    "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "js": ["scripts/injector.js"],
-      "matches": [
-        "https://web.whatsapp.com/*"
-      ]
-    }
-  ],
-  "web_accessible_resources": [
+      "js": ["content/main-hook.js"],
+      "matches": ["https://web.whatsapp.com/*"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
     {
-      "resources": ["scripts/inject.js"],
-      "matches": [
-        "https://web.whatsapp.com/*"
-      ]
+      "js": ["content/bridge.js"],
+      "matches": ["https://web.whatsapp.com/*"],
+      "run_at": "document_start"
     }
   ]
 }

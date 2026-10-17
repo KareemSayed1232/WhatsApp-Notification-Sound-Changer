@@ -43,7 +43,7 @@ describe("load / defaults", () => {
     const state = await store.load();
     expect(state).toEqual({
       schemaVersion: 2,
-      settings: { enabled: true, volume: 1, defaultSoundId: null },
+      settings: { enabled: true, volume: 1, defaultSoundId: null, showPopups: false },
       sounds: {},
       rules: [],
       recentSenders: [],
@@ -55,7 +55,12 @@ describe("load / defaults", () => {
     makeStore({ schemaVersion: 2, rules: "garbage", settings: null, sounds: 5 });
     const state = await store.load();
     expect(state.rules).toEqual([]);
-    expect(state.settings).toEqual({ enabled: true, volume: 1, defaultSoundId: null });
+    expect(state.settings).toEqual({
+      enabled: true,
+      volume: 1,
+      defaultSoundId: null,
+      showPopups: false,
+    });
     expect(state.sounds).toEqual({});
   });
 });
@@ -101,7 +106,21 @@ describe("migration from v1 (single uploadedAudio data URL)", () => {
     const state = await store.load();
     expect("uploadedAudio" in storage.data).toBe(false);
     expect(state.settings.defaultSoundId).toBe("legacy-default");
-    expect(await soundStore.ids()).toEqual([]);
+    expect(await soundStore.ids()).toEqual(["legacy-default"]);
+  });
+
+  it("migrateLegacy imports a sound the old popup uploads after the first migration", async () => {
+    makeStore({ uploadedAudio: legacy });
+    await store.load();
+    storage.data.uploadedAudio = "data:audio/wav;base64,BAUG";
+
+    await store.migrateLegacy();
+
+    const saved = await soundStore.get("legacy-default");
+    expect(saved.mime).toBe("audio/wav");
+    expect([...new Uint8Array(saved.data)]).toEqual([4, 5, 6]);
+    expect("uploadedAudio" in storage.data).toBe(false);
+    expect((await store.load()).sounds["legacy-default"].mime).toBe("audio/wav");
   });
 
   it("keeps working when the legacy value is unreadable", async () => {
@@ -158,6 +177,34 @@ describe("rules", () => {
     expect(updated).toMatchObject({ id: rule.id, enabled: false, match: "Alicia" });
     expect(await codeOf(store.updateRule(rule.id, { match: "" }))).toBe("empty-match");
     expect((await store.load()).rules[0].match).toBe("Alicia");
+  });
+
+  it("stores a chat id on chat rules, drops it from sender rules, and de-duplicates by id", async () => {
+    const chat = await store.addRule({
+      kind: "chat",
+      match: "Radwa",
+      chatId: "601@lid",
+      action: "silent",
+    });
+    expect(chat.chatId).toBe("601@lid");
+    const sender = await store.addRule({
+      kind: "sender",
+      match: "Bob",
+      chatId: "ignored@lid",
+      action: "silent",
+    });
+    expect(sender.chatId).toBeNull();
+
+    // Same chat id under a new display name is the same chat.
+    expect(
+      await codeOf(
+        store.addRule({ kind: "chat", match: "Renamed", chatId: "601@lid", action: "silent" })
+      )
+    ).toBe("duplicate-rule");
+    // Same display name but a different chat id is allowed.
+    await expect(
+      store.addRule({ kind: "chat", match: "Radwa", chatId: "777@lid", action: "silent" })
+    ).resolves.toBeTruthy();
   });
 
   it("does not flag a rule as a duplicate of itself", async () => {
@@ -249,7 +296,17 @@ describe("sounds", () => {
 describe("settings", () => {
   it("merges and sanitizes settings", async () => {
     const settings = await store.setSettings({ volume: 9, enabled: false });
-    expect(settings).toEqual({ enabled: false, volume: 1, defaultSoundId: null });
+    expect(settings).toEqual({
+      enabled: false,
+      volume: 1,
+      defaultSoundId: null,
+      showPopups: false,
+    });
+  });
+
+  it("only turns popups on for an explicit true", async () => {
+    expect((await store.setSettings({ showPopups: true })).showPopups).toBe(true);
+    expect((await store.setSettings({ showPopups: "yes" })).showPopups).toBe(false);
   });
 
   it("rejects a default sound that does not exist", async () => {
@@ -264,6 +321,17 @@ describe("recent senders", () => {
     await store.recordSender({ name: " ALICE ", kind: "chat" });
     const names = (await store.load()).recentSenders.map((s) => s.name);
     expect(names).toEqual([" ALICE ".trim(), "Bob"]);
+  });
+
+  it("keys a chat by its id, so a renamed contact updates instead of duplicating", async () => {
+    await store.recordSender({ name: "Radwa", kind: "chat", chatId: "601@lid" });
+    await store.recordSender({ name: "New Name", kind: "chat", chatId: "601@lid" });
+    await store.recordSender({ name: "Radwa", kind: "chat", chatId: "777@lid" });
+    const list = (await store.load()).recentSenders;
+    expect(list.map((s) => [s.name, s.chatId])).toEqual([
+      ["Radwa", "777@lid"],
+      ["New Name", "601@lid"],
+    ]);
   });
 
   it("keeps the same name separate for different kinds", async () => {

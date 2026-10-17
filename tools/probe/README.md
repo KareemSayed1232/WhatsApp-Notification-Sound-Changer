@@ -1,7 +1,12 @@
 # WANSC Probe (research only)
 
 A tiny throwaway extension that answers Phase 0 questions about how WhatsApp Web notifies you. It
-logs and passes everything through unchanged. It is **not** part of the shipped extension.
+is **not** part of the shipped extension.
+
+**No desktop popups.** The probe tells WhatsApp that notification permission is granted, then
+swallows each notification instead of showing it. You do **not** need to allow notifications in
+your browser, and none will appear. (Your browser's real permission is logged as `page.permission`.)
+Audio is passed through untouched, so WhatsApp's own sound still plays.
 
 ## Install
 
@@ -19,8 +24,13 @@ logs and passes everything through unchanged. It is **not** part of the shipped 
    - a message from a contact whose name contains emoji or non-Latin letters,
    - a message in a group,
    - an image, and a voice message.
-4. Keep the WhatsApp tab in the background (another tab focused) while the messages arrive, so that
-   WhatsApp raises a notification.
+4. WhatsApp only raises a notification when its tab is **hidden or unfocused**. So:
+   - In WhatsApp Web, open Settings → Notifications and make sure message notifications are on
+     (this is WhatsApp's own setting, separate from the browser permission).
+   - Switch to a **different browser tab** (or another app's window) before the message arrives.
+     Do not type `new Notification(...)` yourself: that tests the probe, not WhatsApp.
+   - After the messages arrive, come back and read the log. Each entry has a `page` field showing
+     `visible`, `focused` and the real browser `permission`.
 5. Export what was captured:
    ```js
    copy(JSON.stringify(__wansc_probe, null, 2));
@@ -28,8 +38,9 @@ logs and passes everything through unchanged. It is **not** part of the shipped 
 
 ## Privacy
 
-The log contains contact/group names and message text (`body`). **Replace real names and message
-text with fake ones before sharing it.** Using test chats avoids the issue.
+The log never contains message text: for `body` it records only the length and any `Name: ` prefix.
+It does contain contact/group names and chat ids (`tag`), which can include phone numbers.
+**Replace those with fake values before sharing it.** Using test chats avoids the issue.
 
 ## What we are trying to learn
 

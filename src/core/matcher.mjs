@@ -17,14 +17,27 @@ export function parseSenderFromBody(body) {
   return prefix;
 }
 
-/** Chat rules win over sender rules; within a kind the first enabled match wins. */
+/**
+ * Precedence: chat rule by chat id (`notification.tag`), then chat rule by name, then sender rule.
+ * A rule that has a chatId matches ONLY by id, so a different chat that happens to share the
+ * display name never triggers it, and a renamed contact keeps matching.
+ * Within each step the first enabled match wins.
+ */
 export function findRule(notification, rules) {
   if (!Array.isArray(rules)) return null;
   const enabled = rules.filter((rule) => rule && rule.enabled);
 
+  const tag = typeof notification?.tag === "string" ? notification.tag : "";
+  if (tag) {
+    const byId = enabled.find((r) => r.kind === "chat" && r.chatId && r.chatId === tag);
+    if (byId) return byId;
+  }
+
   const title = normalizeName(notification?.title);
   if (title) {
-    const chat = enabled.find((r) => r.kind === "chat" && normalizeName(r.match) === title);
+    const chat = enabled.find(
+      (r) => r.kind === "chat" && !r.chatId && normalizeName(r.match) === title
+    );
     if (chat) return chat;
   }
 

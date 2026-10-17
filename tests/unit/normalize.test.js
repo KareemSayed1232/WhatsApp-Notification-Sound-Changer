@@ -1,5 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { normalizeName } from "../../src/core/normalize.mjs";
+import { cleanDisplayName, normalizeName } from "../../src/core/normalize.mjs";
+
+describe("cleanDisplayName", () => {
+  it("strips invisible marks and extra whitespace but keeps case", () => {
+    expect(cleanDisplayName(" Alice‎  Smith ")).toBe("Alice Smith");
+    expect(cleanDisplayName(" \u{1F606}‎")).toBe("\u{1F606}");
+  });
+
+  it("returns an empty string for non-strings", () => {
+    expect(cleanDisplayName(null)).toBe("");
+  });
+});
 
 describe("normalizeName", () => {
   it("lowercases, trims and collapses whitespace", () => {

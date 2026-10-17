@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseSenderFromBody, findRule, decidePlayback } from "../../src/core/matcher.mjs";
+import { normalizeName } from "../../src/core/normalize.mjs";
 
 const rule = (over) => ({
   id: "r1",
@@ -35,6 +36,13 @@ describe("parseSenderFromBody", () => {
     expect(parseSenderFromBody(text)).toBeNull();
   });
 
+  it("handles the real WhatsApp group format: leading space and an invisible LRM mark", () => {
+    // Captured from WhatsApp Web (Oct 2026): body was " <name><U+200E>: <text>".
+    const prefix = parseSenderFromBody(" \u{1F606}‎: test");
+    expect(prefix).not.toBeNull();
+    expect(normalizeName(prefix)).toBe(normalizeName("\u{1F606}"));
+  });
+
   it("returns null for non-strings and empty prefixes", () => {
     expect(parseSenderFromBody(undefined)).toBeNull();
     expect(parseSenderFromBody(": hi")).toBeNull();
@@ -53,6 +61,29 @@ describe("findRule", () => {
     expect(findRule({ title: "mom ❤" }, rules).id).toBe("b");
   });
 
+  it("matches a rule by chat id even after the contact is renamed", () => {
+    const rules = [rule({ match: "Radwa", chatId: "601@lid" })];
+    expect(findRule({ title: "A New Name", tag: "601@lid" }, rules)).toBe(rules[0]);
+  });
+
+  it("does not match an id-bound rule for a different chat that shares the name", () => {
+    const rules = [rule({ match: "Alice", chatId: "601@lid" })];
+    expect(findRule({ title: "Alice", tag: "999@lid" }, rules)).toBeNull();
+  });
+
+  it("matches a rule without a chat id by name whatever the tag is", () => {
+    const rules = [rule({ match: "Alice" })];
+    expect(findRule({ title: "Alice", tag: "999@lid" }, rules)).toBe(rules[0]);
+  });
+
+  it("prefers the id-bound rule over a name-only rule for the same chat", () => {
+    const rules = [
+      rule({ id: "byName", match: "Alice" }),
+      rule({ id: "byId", match: "Alice", chatId: "601@lid" }),
+    ];
+    expect(findRule({ title: "Alice", tag: "601@lid" }, rules).id).toBe("byId");
+  });
+
   it("ignores disabled rules", () => {
     expect(findRule({ title: "Alice" }, [rule({ enabled: false })])).toBeNull();
   });
@@ -60,6 +91,16 @@ describe("findRule", () => {
   it("matches a sender rule against the group body prefix", () => {
     const rules = [rule({ kind: "sender", match: "Bob" })];
     expect(findRule({ title: "Family", body: "Bob: dinner?" }, rules)).toBe(rules[0]);
+  });
+
+  it("matches a sender rule on the real group notification shape (title=group, tag=group id)", () => {
+    const rules = [rule({ kind: "sender", match: "\u{1F606}" })];
+    const notification = {
+      title: "asd",
+      tag: "120363415938335499@g.us",
+      body: " \u{1F606}‎: test",
+    };
+    expect(findRule(notification, rules)).toBe(rules[0]);
   });
 
   it("does not match a sender rule when the body has no sender prefix", () => {

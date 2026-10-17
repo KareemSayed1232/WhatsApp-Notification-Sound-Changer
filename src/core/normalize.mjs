@@ -21,8 +21,14 @@ function hex(codePoint) {
   return `\\u${codePoint.toString(16).padStart(4, "0")}`;
 }
 
+/** A name cleaned for display: invisible marks removed, whitespace collapsed, case kept. */
+export function cleanDisplayName(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(INVISIBLE, "").replace(/\s+/g, " ").trim();
+}
+
 /** Canonical form used to compare contact/chat names. Never use it for display. */
 export function normalizeName(value) {
   if (typeof value !== "string") return "";
-  return value.normalize("NFKC").replace(INVISIBLE, "").replace(/\s+/g, " ").trim().toLowerCase();
+  return cleanDisplayName(value.normalize("NFKC")).toLowerCase();
 }

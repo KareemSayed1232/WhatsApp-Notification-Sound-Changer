@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "WANSC Probe (research only)",
   "version": "0.0.1",
-  "description": "Logs what WhatsApp Web passes to Notification / audio APIs. Does not change behavior.",
+  "description": "Logs what WhatsApp Web passes to Notification / audio APIs and hides desktop popups.",
   "browser_specific_settings": {
     "gecko": { "id": "wansc-probe@example.invalid" }
   },

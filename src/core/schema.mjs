@@ -33,7 +33,8 @@ export class ValidationError extends Error {
 }
 
 export function defaultSettings() {
-  return { enabled: true, volume: 1, defaultSoundId: null };
+  // showPopups: false = swallow WhatsApp's desktop notification, keep only the sound.
+  return { enabled: true, volume: 1, defaultSoundId: null, showPopups: false };
 }
 
 export function clampVolume(value) {
@@ -49,6 +50,9 @@ export function validateRule(rule) {
   }
   if (rule.match.trim().length > MAX_MATCH_LENGTH) throw new ValidationError("match-too-long");
   if (rule.action === "sound" && !rule.soundId) throw new ValidationError("missing-sound");
+  if (rule.chatId != null && (typeof rule.chatId !== "string" || rule.chatId.length > 200)) {
+    throw new ValidationError("invalid-chat-id");
+  }
 }
 
 /** `file` only needs `type` and `size`, so it works for File objects and plain test doubles. */

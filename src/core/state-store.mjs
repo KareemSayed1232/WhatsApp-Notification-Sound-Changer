@@ -27,6 +27,7 @@ function sanitize(raw) {
       typeof stored.defaultSoundId === "string"
         ? stored.defaultSoundId
         : defaultSettings().defaultSoundId,
+    showPopups: stored.showPopups === true,
   };
 
   return {
@@ -40,8 +41,16 @@ function sanitize(raw) {
   };
 }
 
-const ruleKey = (rule) => `${rule.kind}\u0000${normalizeName(rule.match)}`;
-const senderKey = (entry) => `${entry.kind}\u0000${normalizeName(entry.name)}`;
+// Identity of a chat rule / recent sender: the chat id when known, otherwise kind + normalized name.
+const identity = (kind, chatId, name) =>
+  chatId ? `chat\u0000id:${chatId}` : `${kind}\u0000${normalizeName(name)}`;
+const ruleKey = (rule) => identity(rule.kind, rule.chatId, rule.match);
+const senderKey = (entry) => identity(entry.kind, entry.chatId, entry.name);
+
+/** Read and sanitize the persisted state. No migration, no writes: safe from content scripts. */
+export async function readState(storage) {
+  return sanitize(await storage.get(KEYS));
+}
 
 /**
  * Persistent state: small JSON in `storage` (chrome.storage.local), sound bytes in `soundStore`.
@@ -56,9 +65,7 @@ export function createStateStore({
   let readyPromise = null;
   let queue = Promise.resolve();
 
-  async function read() {
-    return sanitize(await storage.get(KEYS));
-  }
+  const read = () => readState(storage);
 
   async function migrate() {
     const raw = await storage.get([...KEYS, LEGACY_KEY]);
@@ -66,12 +73,8 @@ export function createStateStore({
     const legacy = raw[LEGACY_KEY];
 
     if (typeof legacy === "string") {
-      if (state.sounds[LEGACY_SOUND_ID]) {
-        // A previous run saved the sound but crashed before removing the old key.
-        await storage.set(state);
-        await storage.remove(LEGACY_KEY);
-        return;
-      }
+      // Importing is idempotent (same id, overwritten bytes), so it also recovers from a crash
+      // between saving the sound and removing the old key, and handles a later re-upload.
       const parsed = parseDataUrl(legacy);
       if (parsed) {
         // Save the bytes first: if this throws, the original data is still in storage.
@@ -129,11 +132,14 @@ export function createStateStore({
       id: base.id,
       kind: input.kind ?? base.kind,
       match: typeof input.match === "string" ? input.match.trim() : base.match,
+      chatId: input.chatId !== undefined ? input.chatId : (base.chatId ?? null),
       action: input.action ?? base.action,
       soundId: input.soundId !== undefined ? input.soundId : (base.soundId ?? null),
       enabled: input.enabled !== undefined ? input.enabled !== false : base.enabled !== false,
     };
     if (rule.action !== "sound") rule.soundId = null;
+    // Only chat rules have an id to match on; senders in groups are identified by name alone.
+    if (rule.kind !== "chat" || rule.chatId === "") rule.chatId = null;
     return rule;
   }
 
@@ -142,6 +148,9 @@ export function createStateStore({
       await ready();
       return read();
     },
+
+    /** Re-import the legacy `uploadedAudio` value, e.g. after the old popup uploads a new sound. */
+    migrateLegacy: () => mutate(() => migrate()),
 
     addRule: (input) =>
       mutate(async (state) => {
@@ -216,6 +225,7 @@ export function createStateStore({
         const merged = { ...state.settings };
         if (patch.enabled !== undefined) merged.enabled = patch.enabled !== false;
         if (patch.volume !== undefined) merged.volume = clampVolume(patch.volume);
+        if (patch.showPopups !== undefined) merged.showPopups = patch.showPopups === true;
         if (patch.defaultSoundId !== undefined) {
           if (patch.defaultSoundId !== null) requireSound(state, patch.defaultSoundId);
           merged.defaultSoundId = patch.defaultSoundId;
@@ -224,12 +234,13 @@ export function createStateStore({
         return merged;
       }),
 
-    /** Remembers only the name and kind -- never message text. */
-    recordSender: ({ name, kind }) =>
+    /** Remembers only name, kind and chat id -- never message text. */
+    recordSender: ({ name, kind, chatId }) =>
       mutate(async (state) => {
         const trimmed = typeof name === "string" ? name.trim() : "";
         if (!trimmed || !RULE_KINDS.includes(kind)) return;
         const entry = { name: trimmed, kind, lastSeen: now() };
+        if (kind === "chat" && typeof chatId === "string" && chatId) entry.chatId = chatId;
         const others = state.recentSenders.filter((s) => senderKey(s) !== senderKey(entry));
         await storage.set({ recentSenders: [entry, ...others].slice(0, MAX_RECENT_SENDERS) });
       }),

@@ -21,7 +21,12 @@ const codeOf = (fn) => {
 describe("schema constants", () => {
   it("is schema version 2 with sane defaults", () => {
     expect(SCHEMA_VERSION).toBe(2);
-    expect(defaultSettings()).toEqual({ enabled: true, volume: 1, defaultSoundId: null });
+    expect(defaultSettings()).toEqual({
+      enabled: true,
+      volume: 1,
+      defaultSoundId: null,
+      showPopups: false,
+    });
   });
 
   it("returns a fresh defaults object each time", () => {
@@ -52,6 +57,15 @@ describe("validateRule", () => {
   it("rejects unknown kinds and actions", () => {
     expect(codeOf(() => validateRule({ ...good, kind: "regex" }))).toBe("invalid-kind");
     expect(codeOf(() => validateRule({ ...good, action: "explode" }))).toBe("invalid-action");
+  });
+
+  it("accepts an optional string chatId and rejects other types", () => {
+    expect(() => validateRule({ ...good, chatId: "123@lid" })).not.toThrow();
+    expect(() => validateRule({ ...good, chatId: null })).not.toThrow();
+    expect(codeOf(() => validateRule({ ...good, chatId: 42 }))).toBe("invalid-chat-id");
+    expect(codeOf(() => validateRule({ ...good, chatId: "x".repeat(201) }))).toBe(
+      "invalid-chat-id"
+    );
   });
 
   it("requires a soundId when the action is sound", () => {
