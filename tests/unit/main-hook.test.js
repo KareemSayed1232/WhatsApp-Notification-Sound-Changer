@@ -234,6 +234,34 @@ describe("sound replacement", () => {
   });
 });
 
+describe("being injected twice", () => {
+  it("does not wrap Notification or play() a second time", async () => {
+    connectBridge(() => managed({ action: "play", soundId: "s1", volume: 1 }));
+    const wrapped = win.Notification;
+    const again = installMainHook({ window: win, document: doc, now: () => clock.t });
+
+    expect(again).toBe(hook);
+    expect(win.Notification).toBe(wrapped);
+
+    new win.Notification("Radwa");
+    await new win.HTMLMediaElement(INCOMING).play();
+    expect(asked.filter((q) => q.kind === "notification")).toHaveLength(1); // asked once, not twice
+    expect(playEvents).toHaveLength(1);
+  });
+
+  it("keeps its marker out of ordinary enumeration", () => {
+    expect(Object.keys(win)).not.toContain("wansc.main-hook");
+    expect(JSON.stringify(Object.keys(win))).not.toMatch(/wansc/);
+  });
+
+  it("can be installed again after uninstall", () => {
+    hook.uninstall();
+    const fresh = installMainHook({ window: win, document: doc, now: () => clock.t });
+    expect(fresh).not.toBe(hook);
+    expect(win.Notification).not.toBe(FakeNotification);
+  });
+});
+
 describe("uninstall", () => {
   it("restores the original Notification and play()", async () => {
     hook.uninstall();

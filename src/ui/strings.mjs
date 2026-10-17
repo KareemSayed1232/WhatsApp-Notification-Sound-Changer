@@ -55,7 +55,12 @@ export const STRINGS = {
   popupRecent: "Recent chats",
   popupRecentEmpty: "Chats that message you will show up here.",
   popupNeedSound: "Add a sound in settings to get started.",
-  popupOpenSettings: "Open settings",
+  popupOpenSettings: "Add sounds and more settings",
+  popupChatsTitle: "Your chats",
+  popupChatsEmpty: "No chats yet. Add one below.",
+  popupAddTitle: "Add a chat",
+  popupAddHint: "Type a name, or pick one from your recent chats.",
+  popupNamePlaceholder: "Chat, group or contact name",
   saved: "Saved.",
 };
 

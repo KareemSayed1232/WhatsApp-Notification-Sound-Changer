@@ -44,7 +44,7 @@ function makeChrome() {
         removeListener: (fn) => (changeListeners = changeListeners.filter((l) => l !== fn)),
       },
     },
-    runtime: { sendMessage: vi.fn(async () => ({ ok: true })) },
+    runtime: { id: "ext", sendMessage: vi.fn(async () => ({ ok: true })) },
   };
 }
 
@@ -240,6 +240,48 @@ describe("live updates", () => {
   it("ignores changes in other storage areas", () => {
     changeListeners.forEach((fn) => fn({ sounds: {} }, "sync"));
     expect(engine.invalidate).not.toHaveBeenCalled();
+  });
+
+  it("keeps working with the sound you changed, with no page reload", async () => {
+    store.settings = { ...store.settings, defaultSoundId: "s2" };
+    changeListeners.forEach((fn) => fn({ settings: {} }, "local"));
+    await vi.waitFor(() =>
+      expect(ask({ kind: "default-sound" }).decision).toMatchObject({ soundId: "s2" })
+    );
+  });
+
+  it("goes quiet once the extension is reloaded under it, instead of using stale rules", () => {
+    expect(ask({ kind: "permission" })).toEqual({ spoof: true });
+    chrome.runtime = {}; // what a content script sees after the extension is reloaded or updated
+    expect(ask({ kind: "permission" })).toBeNull();
+    expect(ask(notify())).toBeNull(); // the hook then lets WhatsApp behave natively
+  });
+
+  it("ignores play requests after the extension is reloaded under it", () => {
+    chrome.runtime = {};
+    doc.dispatchEvent(new CustomEvent(EVENT_PLAY, { detail: JSON.stringify({ soundId: "s1" }) }));
+    expect(engine.play).not.toHaveBeenCalled();
+  });
+
+  it("a newer bridge replaces an older copy left behind in the same tab", async () => {
+    store = { ...store, settings: { ...store.settings, defaultSoundId: "s2" } };
+    const newerEngine = { play: vi.fn(), invalidate: vi.fn() };
+    const newer = startBridge({
+      chrome: makeChrome(),
+      document: doc,
+      engine: newerEngine,
+      CustomEventCtor: CustomEvent,
+    });
+    await newer.ready;
+
+    let answers = 0;
+    doc.addEventListener(EVENT_ANSWER, () => answers++);
+    expect(ask({ kind: "default-sound" }).decision).toMatchObject({ soundId: "s2" });
+    expect(answers).toBe(1); // only the newer copy answered
+
+    doc.dispatchEvent(new CustomEvent(EVENT_PLAY, { detail: JSON.stringify({ soundId: "s2" }) }));
+    expect(engine.play).not.toHaveBeenCalled();
+    expect(newerEngine.play).toHaveBeenCalledTimes(1);
   });
 
   it("stop() detaches the listeners", () => {

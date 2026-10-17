@@ -21,6 +21,8 @@ beforeEach(() => {
       onInstalled: { addListener: (fn) => (onInstalled = fn) },
       onStartup: { addListener: (fn) => (onStartup = fn) },
     },
+    tabs: { query: vi.fn(async () => [{ id: 11 }, { id: 12 }]) },
+    scripting: { executeScript: vi.fn(async () => {}) },
   };
   stateStore = {
     load: vi.fn(async () => ({})),
@@ -53,6 +55,43 @@ describe("startup", () => {
   it("survives a failing load", async () => {
     stateStore.load.mockRejectedValue(new Error("idb unavailable"));
     expect(() => onStartup()).not.toThrow();
+  });
+});
+
+describe("open WhatsApp tabs when the extension is installed, updated or reloaded", () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("injects the page hook and a fresh bridge into every open WhatsApp tab", async () => {
+    onInstalled({ reason: "update" });
+    await flush();
+    expect(chrome.tabs.query).toHaveBeenCalledWith({ url: "https://web.whatsapp.com/*" });
+    for (const tabId of [11, 12]) {
+      expect(chrome.scripting.executeScript).toHaveBeenCalledWith({
+        target: { tabId },
+        files: ["content/main-hook.js"],
+        world: "MAIN",
+      });
+      expect(chrome.scripting.executeScript).toHaveBeenCalledWith({
+        target: { tabId },
+        files: ["content/bridge.js"],
+      });
+    }
+  });
+
+  it("does not inject on a plain browser start-up (content scripts load normally then)", async () => {
+    onStartup();
+    await flush();
+    expect(chrome.scripting.executeScript).not.toHaveBeenCalled();
+  });
+
+  it("copes with failing injections and with having no tabs", async () => {
+    chrome.scripting.executeScript.mockRejectedValue(new Error("tab closed"));
+    expect(() => onInstalled({ reason: "install" })).not.toThrow();
+    chrome.tabs.query.mockRejectedValue(new Error("no permission"));
+    expect(() => onInstalled({ reason: "install" })).not.toThrow();
+    chrome.tabs.query.mockResolvedValue([]);
+    onInstalled({ reason: "update" });
+    await flush();
   });
 });
 

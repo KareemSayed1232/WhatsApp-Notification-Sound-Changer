@@ -7,6 +7,8 @@ import {
   isWhatsAppSound,
 } from "../core/protocol.mjs";
 
+const HOOK_MARKER = Symbol.for("wansc.main-hook");
+
 /**
  * Runs inside WhatsApp's own page (MAIN world), before WhatsApp's scripts.
  *
@@ -19,6 +21,11 @@ import {
  * does not answer, the hook does nothing and WhatsApp behaves exactly as it would without us.
  */
 export function installMainHook({ window, document, now = () => Date.now() }) {
+  // Idempotent: the background may inject this again into a tab that already has it (after the
+  // extension is reloaded). Wrapping twice would break the page's Notification.
+  const existing = window[HOOK_MARKER];
+  if (existing) return existing;
+
   const OriginalNotification = window.Notification;
   const mediaProto = window.HTMLMediaElement ? window.HTMLMediaElement.prototype : null;
   const originalPlay = mediaProto ? mediaProto.play : null;
@@ -160,10 +167,14 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
     };
   }
 
-  return {
+  const api = {
     uninstall() {
       if (OriginalNotification) window.Notification = OriginalNotification;
       if (mediaProto && originalPlay) mediaProto.play = originalPlay;
+      delete window[HOOK_MARKER];
     },
   };
+  // A symbol key is skipped by ordinary enumeration (Object.keys, for...in, JSON).
+  Object.defineProperty(window, HOOK_MARKER, { value: api, configurable: true });
+  return api;
 }

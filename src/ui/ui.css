@@ -209,6 +209,14 @@ input[type="range"] {
 .btn-primary:hover {
   background: var(--accent-hover);
 }
+.btn-secondary {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border);
+}
+.btn-secondary:hover {
+  border-color: var(--muted);
+}
 .btn-block {
   width: 100%;
 }

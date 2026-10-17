@@ -91,7 +91,8 @@ describe("build script", () => {
     const out = path.join(tempDir(), "chromium");
     await build("chromium", { outDir: out });
     const manifest = JSON.parse(readFileSync(path.join(out, "manifest.json"), "utf8"));
-    expect(manifest.permissions).toEqual(["storage"]);
+    // "scripting" only re-injects our own scripts into already-open WhatsApp tabs after an update.
+    expect(manifest.permissions).toEqual(["storage", "scripting"]);
     expect(manifest.host_permissions).toEqual(["https://web.whatsapp.com/*"]);
   });
 

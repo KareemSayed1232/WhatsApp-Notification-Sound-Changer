@@ -53,6 +53,7 @@ let realNotifications;
 let seen;
 let soundRequests;
 let storage;
+let changeListeners;
 
 /** Boots a fresh "WhatsApp tab": fakes for the browser, then the real bundles. */
 async function openTab({ stored = {}, realPermission = "denied" } = {}) {
@@ -61,6 +62,7 @@ async function openTab({ stored = {}, realPermission = "denied" } = {}) {
   realNotifications = [];
   seen = [];
   soundRequests = [];
+  changeListeners = [];
 
   const dom = new JSDOM("<!doctype html><html><body></body></html>", {
     url: "https://web.whatsapp.com/",
@@ -104,9 +106,10 @@ async function openTab({ stored = {}, realPermission = "denied" } = {}) {
             keys.filter((key) => key in storage).map((key) => [key, storage[key]])
           ),
       },
-      onChanged: { addListener() {} },
+      onChanged: { addListener: (fn) => changeListeners.push(fn) },
     },
     runtime: {
+      id: "ext",
       sendMessage: async (message) => {
         if (message.type === "wansc:get-sound") {
           soundRequests.push(message.soundId);
@@ -198,5 +201,57 @@ describe("full pipeline with the real bundles", () => {
     whatsappNotifies("Radwa", { tag: "601@lid", body: "hi" });
     expect(realNotifications).toHaveLength(1);
     expect(realNotifications[0][1]).toMatchObject({ tag: "601@lid", silent: true });
+  });
+});
+
+describe("changing settings while WhatsApp stays open", () => {
+  it("uses the new default sound immediately, without reloading the page", async () => {
+    await whatsappPlaysMessageSound();
+    await vi.waitFor(() => expect(soundRequests).toEqual(["default"]));
+
+    storage.settings = settings({ defaultSoundId: "radwa" });
+    changeListeners.forEach((fn) => fn({ settings: {} }, "local"));
+    await new Promise((resolve) => window.setTimeout(resolve, 10));
+
+    await whatsappPlaysMessageSound();
+    await vi.waitFor(() => expect(soundRequests).toEqual(["default", "radwa"]));
+  });
+
+  it("picks up a rule added in the popup straight away", async () => {
+    storage.rules = [radwaRule({ action: "silent", soundId: null })];
+    changeListeners.forEach((fn) => fn({ rules: {} }, "local"));
+    await new Promise((resolve) => window.setTimeout(resolve, 10));
+
+    whatsappNotifies("Radwa", { tag: "601@lid" });
+    await whatsappPlaysMessageSound();
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(soundRequests).toEqual([]); // silenced
+  });
+});
+
+describe("after the extension is reloaded or updated", () => {
+  it("a copy that lost its extension APIs stops interfering and WhatsApp behaves natively", () => {
+    window.chrome.runtime = {}; // exactly what an orphaned content script sees
+    expect(window.Notification.permission).toBe("denied"); // no spoofing any more
+    whatsappNotifies("Radwa", { tag: "601@lid" });
+    expect(realNotifications).toHaveLength(1); // the real notification goes through
+  });
+
+  it("a freshly injected bridge takes over with the new settings, and only it answers", async () => {
+    storage = { settings: settings({ defaultSoundId: "radwa" }), sounds, rules: [] };
+    window.eval(bridgeCode); // what the background does for already-open tabs
+    await new Promise((resolve) => window.setTimeout(resolve, 10));
+
+    await whatsappPlaysMessageSound();
+    await vi.waitFor(() => expect(soundRequests).toEqual(["radwa"]));
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(started).toHaveLength(1); // the old copy did not also play
+  });
+
+  it("injecting the page hook a second time does not break Notification", () => {
+    window.eval(hookCode);
+    const shown = whatsappNotifies("Radwa", { tag: "601@lid" });
+    expect(realNotifications).toEqual([]);
+    expect(shown.title).toBe("Radwa");
   });
 });

@@ -5,6 +5,9 @@
 export const EVENT_ASK = "wansc:ask";
 export const EVENT_ANSWER = "wansc:answer";
 export const EVENT_PLAY = "wansc:play";
+// A newly started bridge announces itself so any older copy still alive in the tab (left behind
+// when the extension was reloaded or updated) stops answering and playing.
+export const EVENT_REPLACE = "wansc:replace";
 
 // chrome.runtime messages from the bridge to the background worker.
 export const MSG_GET_SOUND = "wansc:get-sound";

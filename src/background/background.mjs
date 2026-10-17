@@ -2,6 +2,7 @@ import { bytesToDataUrl } from "../core/audio-data.mjs";
 import { MSG_GET_SOUND, MSG_SEEN } from "../core/protocol.mjs";
 
 const WHATSAPP_ORIGIN = "https://web.whatsapp.com/";
+const WHATSAPP_TABS = "https://web.whatsapp.com/*";
 const MAX_SEEN_ITEMS = 4;
 
 /**
@@ -48,7 +49,33 @@ export function startBackground({ chrome, stateStore, soundStore }) {
   });
 
   const load = () => stateStore.load().catch(() => {});
-  chrome.runtime.onInstalled.addListener(load);
+
+  /**
+   * Chrome does not re-run content scripts in tabs that were already open when the extension was
+   * installed, updated or reloaded: those tabs keep a dead old copy (or none). Inject fresh ones so
+   * changes take effect without reloading WhatsApp. The hook is idempotent and the new bridge
+   * replaces any old bridge.
+   */
+  async function injectIntoOpenTabs() {
+    let tabs;
+    try {
+      tabs = await chrome.tabs.query({ url: WHATSAPP_TABS });
+    } catch {
+      return;
+    }
+    for (const tab of tabs) {
+      const target = { tabId: tab.id };
+      chrome.scripting
+        .executeScript({ target, files: ["content/main-hook.js"], world: "MAIN" })
+        .catch(() => {});
+      chrome.scripting.executeScript({ target, files: ["content/bridge.js"] }).catch(() => {});
+    }
+  }
+
+  chrome.runtime.onInstalled.addListener(() => {
+    load();
+    injectIntoOpenTabs();
+  });
   chrome.runtime.onStartup.addListener(load);
 
   load();
