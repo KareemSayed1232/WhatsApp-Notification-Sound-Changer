@@ -1,0 +1,14 @@
+node_modules
+dist
+coverage
+LICENSE.txt
+package-lock.json
+
+# Legacy upstream code and docs: skipped to keep the diff reviewable.
+# Each path is removed from this list when the file is rewritten (Phases 3-4, 7).
+src/scripts
+src/audio_player
+src/popup.html
+src/popup.css
+src/manifest.json
+*.md

@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "WANSC Probe (research only)",
+  "version": "0.0.1",
+  "description": "Logs what WhatsApp Web passes to Notification / audio APIs. Does not change behavior.",
+  "browser_specific_settings": {
+    "gecko": { "id": "wansc-probe@example.invalid" }
+  },
+  "content_scripts": [
+    {
+      "js": ["probe.js"],
+      "matches": ["https://web.whatsapp.com/*"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ]
+}

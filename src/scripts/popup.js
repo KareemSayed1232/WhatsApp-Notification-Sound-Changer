@@ -1,5 +1,3 @@
-const storage = chrome.storage.local;
-
 const audioElement = document.getElementById("audioElement");
 const audioFileUpload = document.getElementById("audioFileUpload");
 const message = document.getElementById("message");
@@ -61,7 +59,7 @@ function generateDeleteButton() {
 }
 
 function doDelete() {
-  chrome.storage.local.clear();
+  chrome.storage.local.remove("uploadedAudio");
   audioElement.innerHTML = "";
   audioElement.load();
   document.getElementById("deleteSoundButton").remove();

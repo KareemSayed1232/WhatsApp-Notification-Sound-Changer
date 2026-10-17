@@ -1,15 +1,18 @@
+function setWhatsAppTabsMuted(muted) {
+  chrome.tabs.query({ url: "https://web.whatsapp.com/*" }, function (tabs) {
+    for (const tab of tabs) {
+      chrome.tabs.update(tab.id, { muted });
+    }
+  });
+}
+
 chrome.runtime.onMessage.addListener(async (message) => {
   if (message.title === "WANSC-Load-Player") {
     if (await chrome.offscreen.hasDocument()) {
       chrome.offscreen.closeDocument();
     }
 
-    chrome.tabs.query({url: "https://web.whatsapp.com/*"}, function (tabs) {
-      if (tabs.length > 0) {
-        const whatsApp = tabs[0];
-        chrome.tabs.update(whatsApp.id, { muted: true });
-      }
-    });
+    setWhatsAppTabsMuted(true);
 
     await chrome.offscreen.createDocument({
       url: "audio_player/audio_player.html",
@@ -26,11 +29,6 @@ chrome.runtime.onMessage.addListener(async (message) => {
     chrome.runtime.sendMessage({ title: "WANSC-Stop-Sound" });
   }
   if (message.title === "WANSC-Audio-Ended") {
-    chrome.tabs.query({url: "https://web.whatsapp.com/*"}, function (tabs) {
-      if (tabs.length > 0) {
-        const whatsApp = tabs[0];
-        chrome.tabs.update(whatsApp.id, { muted: false });
-      }
-    });
+    setWhatsAppTabsMuted(false);
   }
 });
