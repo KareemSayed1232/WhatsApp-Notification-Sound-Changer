@@ -1,0 +1,196 @@
+/* Settings page layout. */
+
+.page {
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 28px 20px 40px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.page-header h1 {
+  font-size: 22px;
+}
+
+main {
+  display: grid;
+  gap: 16px;
+}
+
+.card {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.card > .hint {
+  margin-bottom: 14px;
+}
+
+.add-form {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.5fr) minmax(0, 1.1fr) minmax(0, 1.3fr) minmax(0, 1.1fr)
+    auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+#recentHelp {
+  margin: 8px 2px 0;
+}
+
+.toolbar {
+  display: flex;
+  gap: 10px;
+  margin: 16px 0 8px;
+}
+.toolbar .input {
+  max-width: 320px;
+}
+
+/* ---------- rules table */
+
+table.rules {
+  width: 100%;
+  border-collapse: collapse;
+}
+.rules th {
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.rules td {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.rules tbody tr:last-child td {
+  border-bottom: 0;
+}
+.rules .cell-name {
+  display: grid;
+  gap: 1px;
+}
+.rules .cell-sound {
+  min-width: 190px;
+}
+.rules .cell-on {
+  width: 60px;
+}
+.rules .cell-actions {
+  width: 52px;
+  text-align: right;
+}
+.rules .is-off .name {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+/* ---------- sounds */
+
+.sound-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 6px;
+}
+
+.sound-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.sound-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.sound-list li:last-child {
+  border-bottom: 0;
+}
+.sound-info {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+}
+.row-actions {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+
+.page-footer {
+  margin-top: 22px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+@media (max-width: 860px) {
+  .add-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .add-form .btn {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 520px) {
+  .add-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- narrow screens: each rule becomes a stacked card */
+
+@media (max-width: 680px) {
+  .page {
+    padding: 18px 14px 32px;
+  }
+  .rules thead {
+    position: absolute;
+    left: -9999px;
+  }
+  .rules,
+  .rules tbody,
+  .rules tr,
+  .rules td {
+    display: block;
+    width: 100%;
+  }
+  .rules tr {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .rules td {
+    border: 0;
+    padding: 4px 0;
+  }
+  .rules .cell-on,
+  .rules .cell-actions {
+    display: inline-block;
+    width: auto;
+  }
+  .rules .cell-sound {
+    min-width: 0;
+  }
+}

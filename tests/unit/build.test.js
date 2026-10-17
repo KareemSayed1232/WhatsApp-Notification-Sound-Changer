@@ -33,6 +33,7 @@ describe("build script", () => {
     const manifest = JSON.parse(readFileSync(path.join(out, "manifest.json"), "utf8"));
     const referenced = [
       manifest.action?.default_popup,
+      manifest.options_ui?.page,
       manifest.action?.default_icon,
       manifest.background?.service_worker,
       ...Object.values(manifest.icons ?? {}),
@@ -48,7 +49,13 @@ describe("build script", () => {
   it("bundles every entry into a self-contained classic script", async () => {
     const out = path.join(tempDir(), "chromium");
     await build("chromium", { outDir: out });
-    for (const file of ["background.js", "content/main-hook.js", "content/bridge.js"]) {
+    for (const file of [
+      "background.js",
+      "content/main-hook.js",
+      "content/bridge.js",
+      "ui/popup.js",
+      "ui/options.js",
+    ]) {
       const code = readFileSync(path.join(out, file), "utf8");
       expect(code, `${file} must not contain ES module syntax`).not.toMatch(
         /^\s*(import\s|export\s)/m

@@ -12,10 +12,19 @@ const ENTRIES = {
   "background.js": "background/background.entry.mjs",
   "content/main-hook.js": "content/main-hook.entry.mjs",
   "content/bridge.js": "content/bridge.entry.mjs",
+  "ui/popup.js": "ui/popup.entry.mjs",
+  "ui/options.js": "ui/options.entry.mjs",
 };
 
-// Copied as-is. (The popup is replaced by the redesigned UI in Phase 4.)
-const STATIC_FILES = ["icons", "popup.html", "popup.css", "scripts/popup.js"];
+// Copied as-is.
+const STATIC_FILES = [
+  "icons",
+  "ui/popup.html",
+  "ui/options.html",
+  "ui/ui.css",
+  "ui/popup.css",
+  "ui/options.css",
+];
 
 /**
  * Per-browser manifest transforms. Each takes the source manifest and returns the manifest

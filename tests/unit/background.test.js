@@ -8,7 +8,6 @@ const extensionPage = { id: "ext", url: "chrome-extension://ext/options.html" };
 let listener;
 let onInstalled;
 let onStartup;
-let storageListener;
 let chrome;
 let stateStore;
 let soundStore;
@@ -22,12 +21,10 @@ beforeEach(() => {
       onInstalled: { addListener: (fn) => (onInstalled = fn) },
       onStartup: { addListener: (fn) => (onStartup = fn) },
     },
-    storage: { onChanged: { addListener: (fn) => (storageListener = fn) } },
   };
   stateStore = {
     load: vi.fn(async () => ({})),
     recordSender: vi.fn(async () => {}),
-    migrateLegacy: vi.fn(async () => {}),
   };
   soundStore = {
     get: vi.fn(async (id) =>
@@ -143,19 +140,5 @@ describe("seen chats", () => {
     await expect(
       send({ type: MSG_SEEN, items: [{ name: "A", kind: "chat" }] })
     ).resolves.toBeUndefined();
-  });
-});
-
-describe("legacy popup uploads", () => {
-  it("imports a newly uploaded legacy sound", () => {
-    storageListener({ uploadedAudio: { newValue: "data:audio/mpeg;base64,AQID" } }, "local");
-    expect(stateStore.migrateLegacy).toHaveBeenCalledTimes(1);
-  });
-
-  it("ignores removals and unrelated changes", () => {
-    storageListener({ uploadedAudio: { oldValue: "x" } }, "local");
-    storageListener({ rules: { newValue: [] } }, "local");
-    storageListener({ uploadedAudio: { newValue: "x" } }, "sync");
-    expect(stateStore.migrateLegacy).not.toHaveBeenCalled();
   });
 });

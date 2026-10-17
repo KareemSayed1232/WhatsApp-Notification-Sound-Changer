@@ -94,7 +94,10 @@ export function createStateStore({
       // Unreadable legacy value: leave it alone rather than destroy it.
     }
 
-    await storage.set(state);
+    // Only write when something needs repairing: every extension page and the background worker
+    // runs this on start-up, and rewriting identical data would race with other writers.
+    const unchanged = KEYS.every((key) => JSON.stringify(raw[key]) === JSON.stringify(state[key]));
+    if (!unchanged) await storage.set(state);
   }
 
   function ready() {
@@ -148,9 +151,6 @@ export function createStateStore({
       await ready();
       return read();
     },
-
-    /** Re-import the legacy `uploadedAudio` value, e.g. after the old popup uploads a new sound. */
-    migrateLegacy: () => mutate(() => migrate()),
 
     addRule: (input) =>
       mutate(async (state) => {

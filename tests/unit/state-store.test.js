@@ -109,18 +109,14 @@ describe("migration from v1 (single uploadedAudio data URL)", () => {
     expect(await soundStore.ids()).toEqual(["legacy-default"]);
   });
 
-  it("migrateLegacy imports a sound the old popup uploads after the first migration", async () => {
-    makeStore({ uploadedAudio: legacy });
+  it("does not rewrite state that is already current (many contexts start up at once)", async () => {
     await store.load();
-    storage.data.uploadedAudio = "data:audio/wav;base64,BAUG";
+    const writes = storage.calls.set;
 
-    await store.migrateLegacy();
+    await createStateStore({ storage, soundStore }).load();
+    await createStateStore({ storage, soundStore }).load();
 
-    const saved = await soundStore.get("legacy-default");
-    expect(saved.mime).toBe("audio/wav");
-    expect([...new Uint8Array(saved.data)]).toEqual([4, 5, 6]);
-    expect("uploadedAudio" in storage.data).toBe(false);
-    expect((await store.load()).sounds["legacy-default"].mime).toBe("audio/wav");
+    expect(storage.calls.set).toBe(writes);
   });
 
   it("keeps working when the legacy value is unreadable", async () => {

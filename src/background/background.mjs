@@ -51,12 +51,5 @@ export function startBackground({ chrome, stateStore, soundStore }) {
   chrome.runtime.onInstalled.addListener(load);
   chrome.runtime.onStartup.addListener(load);
 
-  // Interim: the old popup still stores uploads under `uploadedAudio`; import them as they arrive.
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && typeof changes.uploadedAudio?.newValue === "string") {
-      stateStore.migrateLegacy().catch(() => {});
-    }
-  });
-
   load();
 }

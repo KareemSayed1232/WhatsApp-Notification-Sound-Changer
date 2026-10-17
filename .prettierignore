@@ -4,9 +4,5 @@ coverage
 LICENSE.txt
 package-lock.json
 
-# Legacy upstream code and docs: skipped to keep the diff reviewable.
-# Each path is removed from this list when the file is rewritten (Phase 4 popup, Phase 7 docs).
-src/scripts
-src/popup.html
-src/popup.css
+# Legacy upstream docs, rewritten in Phase 7.
 *.md
