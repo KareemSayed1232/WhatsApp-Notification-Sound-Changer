@@ -20,8 +20,8 @@ import {
 const POPUP_LIMIT = 8;
 
 /**
- * The toolbar popup: your chats, each with one dropdown to pick its sound. Uploading a new sound
- * opens the settings page, because browsers close a popup as soon as a file dialog opens.
+ * The toolbar popup: your chats, each with one dropdown to pick its sound, including uploading a
+ * new sound inline.
  */
 export async function mountPopup({ document, stateStore, chrome }) {
   const el = (tag, props, ...kids) => h(document, tag, props, ...kids);
@@ -32,6 +32,7 @@ export async function mountPopup({ document, stateStore, chrome }) {
   let toastTimer = null;
   let chatsStale = false;
   let query = "";
+  let uploadTarget = null; // key of the chat whose "Upload new sound…" was chosen
 
   // ---------------------------------------------------------------- controls
 
@@ -84,6 +85,16 @@ export async function mountPopup({ document, stateStore, chrome }) {
       query = event.target.value;
       renderChats();
     },
+  });
+  const assignFile = el("input", {
+    id: "assignFile",
+    type: "file",
+    accept: "audio/*",
+    class: "visually-hidden",
+    tabindex: -1,
+    "aria-hidden": "true",
+    onChange: onAssignFile,
+    onCancel: onAssignFile,
   });
   const refreshButton = el(
     "button",
@@ -163,7 +174,8 @@ export async function mountPopup({ document, stateStore, chrome }) {
       chatSearch,
       chatList,
       chatsMore,
-      chatsEmpty
+      chatsEmpty,
+      assignFile
     ),
     el(
       "details",
@@ -294,11 +306,32 @@ export async function mountPopup({ document, stateStore, chrome }) {
     const row = buildChatRows(state).find((r) => r.key === key);
     if (!row) return;
     if (select.value === CHOICE_UPLOAD) {
-      renderChats(); // put the dropdown back; the upload happens on the settings page
-      openSettings();
+      // Upload inline: pick a file, and it is uploaded and given to this chat in one step.
+      uploadTarget = key;
+      assignFile.value = "";
+      assignFile.click();
       return;
     }
     await save(() => applyChoice(stateStore, row, select.value));
+    focusRow(key);
+  }
+
+  async function onAssignFile() {
+    const key = uploadTarget;
+    uploadTarget = null;
+    const file = assignFile.files?.[0];
+    const row = key ? buildChatRows(state).find((r) => r.key === key) : null;
+    if (!file || !row) {
+      // The picker was cancelled: put the dropdown back to what it was.
+      renderChats();
+      if (key) focusRow(key);
+      return;
+    }
+    await save(async () => {
+      const sound = await stateStore.addSound(file);
+      await applyChoice(stateStore, row, sound.id);
+    }, `Added "${file.name}" for ${row.name}.`);
+    assignFile.value = "";
     focusRow(key);
   }
 

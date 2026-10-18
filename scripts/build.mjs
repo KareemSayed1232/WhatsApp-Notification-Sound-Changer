@@ -30,8 +30,40 @@ const STATIC_FILES = [
  * Per-browser manifest transforms. Each takes the source manifest and returns the manifest
  * for that target. Only "chromium" is shipped so far; "firefox" arrives with the Phase 5 packaging.
  */
+// Used only to give Firefox a stable add-on id; change it if you publish under your own domain.
+export const GECKO_ID = "whatsapp-sound-changer@kareemsayed1232.github.io";
+
+const omit = (object, ...keys) =>
+  Object.fromEntries(Object.entries(object).filter(([key]) => !keys.includes(key)));
+
 export const targets = {
-  chromium: (manifest) => manifest,
+  // Chrome, Edge, Brave, Opera, Vivaldi and other Chromium browsers.
+  chromium: (manifest) => omit(manifest, "browser_specific_settings"),
+
+  // Firefox 140+: MAIN-world content scripts need 128, and Mozilla now requires the
+  // data_collection_permissions key, which needs 140 (Android: 142). Firefox has no service
+  // workers for extensions, so the same bundled file runs as a (non-persistent) event page.
+  // `author` is dropped because Firefox wants a string where Chrome takes an {email} object.
+  firefox: (manifest) => ({
+    ...omit(manifest, "minimum_chrome_version", "author"),
+    background: { scripts: [manifest.background.service_worker] },
+    browser_specific_settings: {
+      gecko: {
+        id: GECKO_ID,
+        strict_min_version: "140.0",
+        // The extension collects and transmits nothing.
+        data_collection_permissions: { required: ["none"] },
+      },
+      gecko_android: { strict_min_version: "142.0" },
+    },
+  }),
+
+  // Safari 16.4+ (macOS/iOS). The folder must be wrapped with Apple's converter on a Mac:
+  //   xcrun safari-web-extension-converter dist/safari
+  safari: (manifest) => ({
+    ...omit(manifest, "minimum_chrome_version"),
+    browser_specific_settings: { safari: { strict_min_version: "16.4" } },
+  }),
 };
 
 export async function build(target, { outDir = path.join(root, "dist", target) } = {}) {
