@@ -3,7 +3,11 @@ import { cleanDisplayName, normalizeName } from "../core/normalize.mjs";
 // WhatsApp Web's own markup. It is not a public API and can change, so every lookup has fallbacks
 // and the caller treats "found nothing" as an expected outcome, not an error.
 const PANE_SELECTOR = "#pane-side";
-const ROW_SELECTOR = '[role="listitem"], [data-testid="cell-frame-container"]';
+// Observed on WhatsApp Web (Oct 2026): rows carry data-testid="cell-frame-container" and sit in a
+// role="grid" list; older builds used role="listitem". Accept any of them.
+const ROW_SELECTOR = '[role="row"], [role="listitem"], [data-testid="cell-frame-container"]';
+// Pseudo-rows built from the same markup but which are not chats.
+const NOT_A_CHAT = /locked chats|archived/i;
 const TITLE_SELECTORS = [
   '[data-testid="cell-frame-title"] span[title]',
   'span[dir="auto"][title]',
@@ -11,7 +15,14 @@ const TITLE_SELECTORS = [
 ];
 const MAX_NAME_LENGTH = 100;
 
+function isNotAChat(row) {
+  const button = row.closest("button");
+  const label = `${button?.getAttribute("aria-label") ?? ""} ${button?.dataset?.testid ?? ""}`;
+  return NOT_A_CHAT.test(label);
+}
+
 function nameFromRow(row) {
+  if (isNotAChat(row)) return "";
   for (const selector of TITLE_SELECTORS) {
     const el = row.querySelector(selector);
     const name = cleanDisplayName(el?.getAttribute("title") || el?.textContent);

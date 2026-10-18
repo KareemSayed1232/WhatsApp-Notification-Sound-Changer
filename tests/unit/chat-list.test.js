@@ -47,6 +47,45 @@ describe("readChatNames", () => {
     expect(readChatNames(document)).toEqual(["Radwa", "Mom"]);
   });
 
+  describe("the real WhatsApp Web markup (captured Oct 2026, names changed)", () => {
+    const chatRow = (name, preview) =>
+      `<div role="row"><div role="gridcell"><div data-testid="cell-frame-container">` +
+      `<div data-testid="cell-frame-title"><span dir="auto" title="${name}">${name}</span></div>` +
+      `<div data-testid="cell-frame-secondary"><span dir="auto" title="${preview}">${preview}</span></div>` +
+      `</div></div></div>`;
+    const pseudoRow = (label, testid) =>
+      `<button aria-label="${label}" ${testid ? `data-testid="${testid}"` : ""} type="button">` +
+      `<div data-testid="cell-frame-container"><div data-testid="cell-frame-title">` +
+      `<span dir="auto" title="${label}">${label}</span></div></div></button>`;
+
+    beforeEach(() => {
+      document.body.innerHTML =
+        '<div id="pane-side"><div role="grid" data-testid="chat-list">' +
+        pseudoRow("Locked chats") +
+        pseudoRow("Archived", "chatlist-panel-archived-button") +
+        chatRow("Amaal", "‪Photo‬") +
+        chatRow("Mohanad", ".") +
+        chatRow("انا", "‫انتي بتبقي") +
+        "</div></div>";
+    });
+
+    it("reads chat names from role=row / cell-frame-title rows", () => {
+      expect(readChatNames(document)).toEqual(["Amaal", "Mohanad", "انا"]);
+    });
+
+    it("does not list message previews as chats", () => {
+      const names = readChatNames(document);
+      expect(names).not.toContain("Photo");
+      expect(names).not.toContain(".");
+    });
+
+    it("does not list the Locked chats and Archived buttons as chats", () => {
+      const names = readChatNames(document);
+      expect(names).not.toContain("Locked chats");
+      expect(names).not.toContain("Archived");
+    });
+  });
+
   it("falls back to the visible text when a row has no title attribute", () => {
     document.body.innerHTML =
       '<div id="pane-side"><div role="listitem"><span dir="auto" title="">Bob</span></div></div>';
