@@ -254,7 +254,7 @@ input[type="range"] {
 }
 .chat-list li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 230px);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 230px) auto;
   align-items: center;
   gap: 12px;
   padding: 10px 12px;

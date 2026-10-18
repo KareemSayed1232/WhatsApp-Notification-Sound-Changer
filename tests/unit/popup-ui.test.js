@@ -110,7 +110,6 @@ describe("the chat list: only chats with a sound, search finds the rest", () => 
       "Silent (no sound)",
       "Chime.mp3",
       "Ping.mp3",
-      "＋ Upload new sound…",
     ]);
     search("zzz");
     expect($("#chatsEmpty").textContent).toMatch(/No chat matches/);
@@ -149,22 +148,29 @@ describe("the chat list: only chats with a sound, search finds the rest", () => 
     await vi.waitFor(async () => expect((await store.load()).rules).toEqual([]));
   });
 
-  describe("uploading a new sound inline from a chat's dropdown", () => {
-    const pickFile = (...files) => {
-      Object.defineProperty($("#assignFile"), "files", { value: files, configurable: true });
+  describe("uploading a new sound for one chat, with the button on its row", () => {
+    const fileInputOf = (name) => rowOf(name).querySelector(".row-file");
+    const uploadButtonOf = (name) => rowOf(name).querySelector(".upload-for-chat");
+    const chooseFile = (name, ...files) => {
+      Object.defineProperty(fileInputOf(name), "files", { value: files, configurable: true });
+      fire(fileInputOf(name), "change");
     };
 
-    it("opens the file picker right here, not the settings page", () => {
-      $("#assignFile").click = vi.fn();
-      choose("Radwa", "__upload");
-      expect($("#assignFile").click).toHaveBeenCalledTimes(1);
+    it("gives the chat its own clearly labelled upload button", () => {
+      expect(uploadButtonOf("Radwa").getAttribute("aria-label")).toBe(
+        "Upload a new sound for Radwa"
+      );
+    });
+
+    it("opens the file picker from the button's click, right here, not the settings page", () => {
+      fileInputOf("Radwa").click = vi.fn();
+      uploadButtonOf("Radwa").click();
+      expect(fileInputOf("Radwa").click).toHaveBeenCalledTimes(1);
       expect(chrome.runtime.openOptionsPage).not.toHaveBeenCalled();
     });
 
     it("uploads the file and gives it to that chat in one step", async () => {
-      choose("Radwa", "__upload");
-      pickFile(fakeSound("meow.mp3"));
-      fire($("#assignFile"), "change");
+      chooseFile("Radwa", fakeSound("meow.mp3"));
 
       await vi.waitFor(async () => expect((await store.load()).rules).toHaveLength(1));
       const state = await store.load();
@@ -179,20 +185,15 @@ describe("the chat list: only chats with a sound, search finds the rest", () => 
       await vi.waitFor(() => expect(findRow("Radwa").querySelector("select").value).toBe(meow.id));
     });
 
-    it("puts the dropdown back when the picker is cancelled", async () => {
-      choose("Radwa", "__upload");
-      pickFile();
-      fire($("#assignFile"), "cancel");
-      await vi.waitFor(() =>
-        expect(findRow("Radwa").querySelector("select").value).toBe("__default")
-      );
+    it("does nothing when the picker is cancelled (no file chosen)", async () => {
+      chooseFile("Radwa");
+      await new Promise((r) => setTimeout(r, 20));
       expect(Object.keys((await store.load()).sounds)).toHaveLength(2);
+      expect((await store.load()).rules).toEqual([]);
     });
 
     it("shows a clear error for an unsupported file and changes nothing", async () => {
-      choose("Radwa", "__upload");
-      pickFile({ ...fakeSound("notes.txt"), type: "text/plain" });
-      fire($("#assignFile"), "change");
+      chooseFile("Radwa", { ...fakeSound("notes.txt"), type: "text/plain" });
       await vi.waitFor(() => expect($("#message").textContent).toMatch(/isn't supported/));
       expect($("#message").className).toContain("toast-error");
       expect(findRow("Radwa").querySelector("select").value).toBe("__default");

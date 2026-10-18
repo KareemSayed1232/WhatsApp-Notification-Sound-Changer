@@ -59,7 +59,7 @@
 
 /* A narrower dropdown column than the settings page. */
 .popup .chat-list li {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 170px);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 150px) auto;
   padding: 8px 10px;
   gap: 10px;
 }

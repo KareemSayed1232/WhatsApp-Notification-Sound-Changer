@@ -91,10 +91,6 @@ const choose = (name, value) => {
 };
 const submitAddByName = () =>
   $("#addRuleForm").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-const pickFile = (...files) => {
-  Object.defineProperty($("#assignFile"), "files", { value: files, configurable: true });
-};
-
 beforeEach(() => mount());
 
 describe("first run", () => {
@@ -194,14 +190,13 @@ describe("the list shows only chats that have a sound; search finds the rest", (
 describe("your chats: one dropdown per chat", () => {
   beforeEach(() => mount({ initial: { recentSenders }, setup: twoSounds }));
 
-  it("offers default, silent, every loaded sound, and uploading a new one", () => {
+  it("offers default, silent and every loaded sound", () => {
     const labels = [...selectOf("Radwa").options].map((o) => o.textContent);
     expect(labels).toEqual([
       "Default sound",
       "Silent (no sound)",
       "Chime.mp3", // same upload time, so alphabetical
       "Ping.mp3",
-      "＋ Upload new sound…",
     ]);
     expect(rowOf("Family").textContent).toContain("Group");
   });
@@ -380,19 +375,31 @@ describe("chats that have a rule but have not messaged yet", () => {
   });
 });
 
-describe("uploading a new sound straight from a chat's dropdown", () => {
+describe("uploading a new sound for one chat, with the button on its row", () => {
   beforeEach(() => mount({ initial: { recentSenders }, setup: twoSounds }));
 
-  it("opens the file picker instead of leaving the dropdown on 'Upload'", () => {
-    $("#assignFile").click = vi.fn();
-    choose("Radwa", "__upload");
-    expect($("#assignFile").click).toHaveBeenCalledTimes(1);
+  const fileInputOf = (name) => rowOf(name).querySelector(".row-file");
+  const uploadButtonOf = (name) => rowOf(name).querySelector(".upload-for-chat");
+  const chooseFile = (name, ...files) => {
+    Object.defineProperty(fileInputOf(name), "files", { value: files, configurable: true });
+    fire(fileInputOf(name), "change");
+  };
+
+  it("gives every chat its own clearly labelled upload button", () => {
+    expect(uploadButtonOf("Radwa").getAttribute("aria-label")).toBe("Upload a new sound for Radwa");
+    expect(uploadButtonOf("Family").getAttribute("aria-label")).toBe(
+      "Upload a new sound for Family"
+    );
+  });
+
+  it("opens the file picker from the button's click (the only way Firefox allows)", () => {
+    fileInputOf("Radwa").click = vi.fn();
+    uploadButtonOf("Radwa").click();
+    expect(fileInputOf("Radwa").click).toHaveBeenCalledTimes(1);
   });
 
   it("uploads the file and gives it to that chat in one step", async () => {
-    choose("Radwa", "__upload");
-    pickFile(fakeFile("meow.mp3"));
-    fire($("#assignFile"), "change");
+    chooseFile("Radwa", fakeFile("meow.mp3"));
 
     await vi.waitFor(async () => expect((await store.load()).rules).toHaveLength(1));
     const state = await store.load();
@@ -404,20 +411,15 @@ describe("uploading a new sound straight from a chat's dropdown", () => {
     expect($$("#soundList li")).toHaveLength(3);
   });
 
-  it("puts the dropdown back when the picker is cancelled", async () => {
-    choose("Radwa", "__upload");
-    pickFile(); // nothing chosen
-    fire($("#assignFile"), "cancel");
-    await vi.waitFor(() =>
-      expect(findRow("Radwa").querySelector("select").value).toBe("__default")
-    );
+  it("does nothing when the picker is cancelled (no file chosen)", async () => {
+    chooseFile("Radwa");
+    await new Promise((r) => setTimeout(r, 20));
     expect(Object.keys((await store.load()).sounds)).toHaveLength(2);
+    expect((await store.load()).rules).toEqual([]);
   });
 
   it("shows a clear error for an unsupported file and changes nothing", async () => {
-    choose("Radwa", "__upload");
-    pickFile(fakeFile("notes.txt", "text/plain"));
-    fire($("#assignFile"), "change");
+    chooseFile("Radwa", fakeFile("notes.txt", "text/plain"));
     await vi.waitFor(() => expect(text("#message")).toMatch(/isn't supported/));
     expect($("#message").className).toContain("toast-error");
     expect(findRow("Radwa").querySelector("select").value).toBe("__default");

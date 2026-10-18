@@ -9,7 +9,6 @@ import { icon } from "./icons.mjs";
 import { STRINGS as S, errorMessage } from "./strings.mjs";
 import {
   CHOICE_DEFAULT,
-  CHOICE_UPLOAD,
   buildChatRows,
   buildSoundRows,
   chatsToShow,
@@ -32,7 +31,6 @@ export async function mountPopup({ document, stateStore, chrome }) {
   let toastTimer = null;
   let chatsStale = false;
   let query = "";
-  let uploadTarget = null; // key of the chat whose "Upload new sound…" was chosen
 
   // ---------------------------------------------------------------- controls
 
@@ -85,16 +83,6 @@ export async function mountPopup({ document, stateStore, chrome }) {
       query = event.target.value;
       renderChats();
     },
-  });
-  const assignFile = el("input", {
-    id: "assignFile",
-    type: "file",
-    accept: "audio/*",
-    class: "visually-hidden",
-    tabindex: -1,
-    "aria-hidden": "true",
-    onChange: onAssignFile,
-    onCancel: onAssignFile,
   });
   const refreshButton = el(
     "button",
@@ -174,8 +162,7 @@ export async function mountPopup({ document, stateStore, chrome }) {
       chatSearch,
       chatList,
       chatsMore,
-      chatsEmpty,
-      assignFile
+      chatsEmpty
     ),
     el(
       "details",
@@ -214,7 +201,26 @@ export async function mountPopup({ document, stateStore, chrome }) {
       "aria-label": `${S.soundLabel}: ${row.name}`,
       onChange: (event) => onChatChoice(row.key, event.target),
     });
-    fillSelect(document, select, soundChoices(state.sounds, { allowUpload: true }), row.choice);
+    fillSelect(document, select, soundChoices(state.sounds), row.choice);
+    const fileInput = el("input", {
+      type: "file",
+      accept: "audio/*",
+      class: "visually-hidden row-file",
+      tabindex: -1,
+      "aria-hidden": "true",
+      onChange: (event) => onRowFile(row.key, event.target),
+    });
+    const uploadButton = el(
+      "button",
+      {
+        class: "icon-btn upload-for-chat",
+        type: "button",
+        title: `${S.uploadFor} ${row.name}`,
+        "aria-label": `${S.uploadFor} ${row.name}`,
+        onClick: () => fileInput.click(),
+      },
+      icon(document, "upload")
+    );
     return el(
       "li",
       { dataset: { key: row.key }, class: row.hasRule ? "is-set" : "" },
@@ -224,7 +230,9 @@ export async function mountPopup({ document, stateStore, chrome }) {
         el("span", { class: "name" }, row.name),
         el("span", { class: "meta" }, row.kindLabel)
       ),
-      select
+      select,
+      uploadButton,
+      fileInput
     );
   }
 
@@ -305,33 +313,21 @@ export async function mountPopup({ document, stateStore, chrome }) {
   async function onChatChoice(key, select) {
     const row = buildChatRows(state).find((r) => r.key === key);
     if (!row) return;
-    if (select.value === CHOICE_UPLOAD) {
-      // Upload inline: pick a file, and it is uploaded and given to this chat in one step.
-      uploadTarget = key;
-      assignFile.value = "";
-      assignFile.click();
-      return;
-    }
     await save(() => applyChoice(stateStore, row, select.value));
     focusRow(key);
   }
 
-  async function onAssignFile() {
-    const key = uploadTarget;
-    uploadTarget = null;
-    const file = assignFile.files?.[0];
-    const row = key ? buildChatRows(state).find((r) => r.key === key) : null;
-    if (!file || !row) {
-      // The picker was cancelled: put the dropdown back to what it was.
-      renderChats();
-      if (key) focusRow(key);
-      return;
-    }
+  // The row's upload button opens the file picker from a real click (Firefox refuses to open a
+  // picker from any other event); when a file is chosen it is uploaded and given to that chat.
+  async function onRowFile(key, input) {
+    const file = input.files?.[0];
+    const row = buildChatRows(state).find((r) => r.key === key);
+    if (!file || !row) return;
     await save(async () => {
       const sound = await stateStore.addSound(file);
       await applyChoice(stateStore, row, sound.id);
     }, `Added "${file.name}" for ${row.name}.`);
-    assignFile.value = "";
+    input.value = "";
     focusRow(key);
   }
 

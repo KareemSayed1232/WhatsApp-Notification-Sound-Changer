@@ -61,7 +61,7 @@ export const STRINGS = {
   addByNameHint: "Only if a chat is missing from the list. The name must match WhatsApp exactly.",
   peopleTitle: "People inside groups (advanced)",
   peopleHint: "Give one person their own sound in every group they write in.",
-  choiceUpload: "＋ Upload new sound…",
+  uploadFor: "Upload a new sound for",
 
   choiceDefault: "Default sound",
   choiceSilent: "Silent (no sound)",

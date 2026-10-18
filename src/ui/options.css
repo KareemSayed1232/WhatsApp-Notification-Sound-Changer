@@ -105,8 +105,15 @@ main {
   .page {
     padding: 18px 14px 32px;
   }
-  .chat-list li,
   .add-form {
     grid-template-columns: minmax(0, 1fr);
+  }
+  /* Name and upload button on the first row, the sound dropdown across the second. */
+  .chat-list li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .chat-list li .chat-sound {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 }

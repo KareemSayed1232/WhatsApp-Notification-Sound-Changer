@@ -3,7 +3,6 @@ import { STRINGS as S } from "./strings.mjs";
 
 export const CHOICE_DEFAULT = "__default";
 export const CHOICE_SILENT = "__silent";
-export const CHOICE_UPLOAD = "__upload";
 
 export function formatBytes(bytes) {
   if (!(bytes > 0)) return "0 KB";
@@ -33,18 +32,14 @@ export function choiceToAction(choice) {
 
 const byCreated = (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.name.localeCompare(b.name);
 
-/**
- * Options for any "which sound?" dropdown. With `allowUpload`, a last option lets the user add a
- * new sound without leaving the dropdown.
- */
-export function soundChoices(sounds, { allowUpload = false } = {}) {
+/** Options for any "which sound?" dropdown: default, silent, then every loaded sound. */
+export function soundChoices(sounds) {
   return [
     { value: CHOICE_DEFAULT, label: S.choiceDefault },
     { value: CHOICE_SILENT, label: S.choiceSilent },
     ...Object.values(sounds)
       .sort(byCreated)
       .map((sound) => ({ value: sound.id, label: sound.name })),
-    ...(allowUpload ? [{ value: CHOICE_UPLOAD, label: S.choiceUpload }] : []),
   ];
 }
 

@@ -9,7 +9,6 @@ import { icon } from "./icons.mjs";
 import { STRINGS as S, errorMessage } from "./strings.mjs";
 import {
   CHOICE_DEFAULT,
-  CHOICE_UPLOAD,
   buildChatRows,
   buildPeopleRows,
   buildSoundRows,
@@ -70,7 +69,6 @@ export async function mountOptions({
   let state = await stateStore.load();
   let filter = "";
   let toastTimer = null;
-  let uploadTarget = null; // key of the chat whose "Upload new sound…" was chosen
   let chatsStale = false; // new chats arrived while a dropdown was open
 
   // ---------------------------------------------------------------- building blocks
@@ -139,16 +137,6 @@ export async function mountOptions({
     el("p", { class: "hint" }, S.peopleHint),
     peopleList
   );
-  const assignFile = el("input", {
-    id: "assignFile",
-    type: "file",
-    accept: "audio/*",
-    class: "visually-hidden",
-    tabindex: -1,
-    "aria-hidden": "true",
-    onChange: onAssignFile,
-    onCancel: onAssignFile,
-  });
 
   // Add a chat by name
   const ruleName = el("input", {
@@ -223,7 +211,6 @@ export async function mountOptions({
         chatList,
         chatsMore,
         chatsEmpty,
-        assignFile,
         people,
         el(
           "details",
@@ -383,7 +370,26 @@ export async function mountOptions({
       "aria-label": `${S.soundLabel}: ${row.name}`,
       onChange: (event) => onChatChoice(row.key, event.target),
     });
-    fillSelect(document, select, soundChoices(state.sounds, { allowUpload: true }), row.choice);
+    fillSelect(document, select, soundChoices(state.sounds), row.choice);
+    const fileInput = el("input", {
+      type: "file",
+      accept: "audio/*",
+      class: "visually-hidden row-file",
+      tabindex: -1,
+      "aria-hidden": "true",
+      onChange: (event) => onRowFile(row.key, event.target),
+    });
+    const uploadButton = el(
+      "button",
+      {
+        class: "icon-btn upload-for-chat",
+        type: "button",
+        title: `${S.uploadFor} ${row.name}`,
+        "aria-label": `${S.uploadFor} ${row.name}`,
+        onClick: () => fileInput.click(),
+      },
+      icon(document, "upload")
+    );
     return el(
       "li",
       { dataset: { key: row.key }, class: row.hasRule ? "is-set" : "" },
@@ -400,7 +406,9 @@ export async function mountOptions({
             : null
         )
       ),
-      select
+      select,
+      uploadButton,
+      fileInput
     );
   }
 
@@ -499,34 +507,23 @@ export async function mountOptions({
   async function onChatChoice(key, select) {
     const row = findRow(key);
     if (!row) return;
-    if (select.value === CHOICE_UPLOAD) {
-      uploadTarget = key;
-      assignFile.value = "";
-      assignFile.click();
-      return;
-    }
     await run(() => applyChoice(stateStore, row, select.value));
     renderChats();
     renderSounds();
     focusRow(key);
   }
 
-  async function onAssignFile() {
-    const key = uploadTarget;
-    uploadTarget = null;
-    const file = assignFile.files?.[0];
-    const row = key ? findRow(key) : null;
-    if (!file || !row) {
-      // The picker was cancelled: put the dropdown back to what it was.
-      renderChats();
-      if (key) focusRow(key);
-      return;
-    }
+  // The row's upload button opens the file picker from a real click (Firefox refuses to open a
+  // picker from any other event); when a file is chosen it is uploaded and given to that chat.
+  async function onRowFile(key, input) {
+    const file = input.files?.[0];
+    const row = findRow(key);
+    if (!file || !row) return;
     const outcome = await run(async () => {
       const sound = await stateStore.addSound(file);
       await applyChoice(stateStore, row, sound.id);
     }, `Added "${file.name}" for ${row.name}.`);
-    assignFile.value = "";
+    input.value = "";
     if (outcome.ok) renderAll();
     else renderChats();
     focusRow(key);

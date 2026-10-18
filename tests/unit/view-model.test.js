@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   CHOICE_DEFAULT,
   CHOICE_SILENT,
-  CHOICE_UPLOAD,
   buildChatRows,
   buildPeopleRows,
   buildSoundRows,
@@ -70,10 +69,13 @@ describe("choices", () => {
     ]);
   });
 
-  it("adds an 'upload new sound' option last, only when asked", () => {
-    const withUpload = soundChoices(sounds, { allowUpload: true });
-    expect(withUpload.at(-1)).toEqual({ value: CHOICE_UPLOAD, label: "＋ Upload new sound…" });
-    expect(soundChoices(sounds).map((c) => c.value)).not.toContain(CHOICE_UPLOAD);
+  it("has no 'upload' entry: uploading is a button on each row (a real click, which Firefox requires)", () => {
+    expect(soundChoices(sounds).map((c) => c.label)).toEqual([
+      "Default sound",
+      "Silent (no sound)",
+      "Ping",
+      "Chime",
+    ]);
   });
 });
 
