@@ -1,3 +1,4 @@
+import { classifyTag } from "./health.mjs";
 import { normalizeName } from "./normalize.mjs";
 import { clampVolume, defaultSettings } from "./schema.mjs";
 
@@ -10,7 +11,10 @@ const MAX_SENDER_LENGTH = 64;
  */
 export function parseSenderFromBody(body) {
   if (typeof body !== "string") return null;
-  const index = body.indexOf(": ");
+  // A colon followed by any space (including no-break spaces), or a full-width colon. "12:30"
+  // and "https://" never match.
+  const separator = /:\s|：/u.exec(body);
+  const index = separator ? separator.index : -1;
   if (index <= 0) return null;
   const prefix = body.slice(0, index).trim();
   if (!prefix || prefix.length > MAX_SENDER_LENGTH || prefix.includes("\n")) return null;
@@ -21,6 +25,10 @@ export function parseSenderFromBody(body) {
  * Precedence: chat rule by chat id (`notification.tag`), then chat rule by name, then sender rule.
  * A rule that has a chatId matches ONLY by id, so a different chat that happens to share the
  * display name never triggers it, and a renamed contact keeps matching.
+ *
+ * One exception keeps rules alive when WhatsApp migrates its ids (it already moved contacts from
+ * phone-number ids "...@c.us" to "...@lid"): a rule whose id is of a DIFFERENT kind than the
+ * notification's still matches by name. Two ids of the same kind are always different chats.
  * Within each step the first enabled match wins.
  */
 export function findRule(notification, rules) {
@@ -39,6 +47,17 @@ export function findRule(notification, rules) {
       (r) => r.kind === "chat" && !r.chatId && normalizeName(r.match) === title
     );
     if (chat) return chat;
+
+    if (tag) {
+      const migrated = enabled.find(
+        (r) =>
+          r.kind === "chat" &&
+          r.chatId &&
+          classifyTag(r.chatId) !== classifyTag(tag) &&
+          normalizeName(r.match) === title
+      );
+      if (migrated) return migrated;
+    }
   }
 
   const sender = normalizeName(parseSenderFromBody(notification?.body));
@@ -51,11 +70,43 @@ export function findRule(notification, rules) {
 }
 
 /**
+ * When the rule for this notification was found through a migrated id, the rule should move onto
+ * the new id: `{ ruleId, chatId }`. Otherwise null.
+ */
+export function findRebind(notification, rules) {
+  const tag = typeof notification?.tag === "string" ? notification.tag : "";
+  if (!tag) return null;
+  const rule = findRule(notification, rules);
+  return rule?.kind === "chat" && rule.chatId && rule.chatId !== tag
+    ? { ruleId: rule.id, chatId: tag }
+    : null;
+}
+
+/**
  * Decide what to do for one notification.
  *  - { action: "native" }               leave WhatsApp's own sound untouched
  *  - { action: "silent", ruleId }       suppress every sound
  *  - { action: "play", soundId, volume, ruleId }
  */
+/**
+ * The decision for a chat known only by its name (a new message seen in the chat list, with no
+ * notification and so no chat id). Chat rules tied to an id match by name here.
+ */
+export function decideForChatName({ name, rules, sounds, settings }) {
+  const key = normalizeName(name);
+  const byName = (Array.isArray(rules) ? rules : []).map((rule) =>
+    rule?.kind === "chat" && rule.chatId && normalizeName(rule.match) === key
+      ? { ...rule, chatId: null }
+      : rule
+  );
+  return decidePlayback({
+    notification: { title: name, tag: "" },
+    rules: byName,
+    sounds,
+    settings,
+  });
+}
+
 export function decidePlayback({ notification, rules, sounds, settings }) {
   const config = { ...defaultSettings(), ...settings };
   if (config.enabled === false) return { action: "native" };

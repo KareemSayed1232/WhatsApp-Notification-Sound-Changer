@@ -375,6 +375,57 @@ details.add-by-name[open] summary {
   color: var(--danger);
 }
 
+/* "Is it working?" status line: a coloured dot, then one sentence. */
+.health {
+  position: relative;
+  margin: 10px 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.health::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0.5em;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.health-ok::before {
+  background: var(--accent);
+}
+.health-warn::before {
+  background: #d9962b;
+}
+.health-bad::before {
+  background: var(--danger);
+}
+.health-warn,
+.health-bad {
+  color: var(--text);
+}
+.health-tools {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.diagnostics-text {
+  width: 100%;
+  font:
+    12px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+}
+
 .badge {
   display: inline-block;
   padding: 1px 8px;

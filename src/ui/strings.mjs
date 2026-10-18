@@ -82,6 +82,27 @@ export const STRINGS = {
 
   privacy: "Everything stays on this device. Nothing is sent anywhere.",
 
+  healthTitle: "Is it working?",
+  justNow: "just now",
+  healthWaiting: "Waiting for a message. Ask someone to message you to check it works.",
+  healthWorking: "Working. Last handled a message",
+  healthNoSound:
+    "WhatsApp keeps notifying us but plays no sound. Either WhatsApp's own sounds are turned off, or WhatsApp changed something. If you hear no sound of yours, copy the diagnostics in settings.",
+  healthPlayFailed:
+    "Your sound couldn't play last time: the browser blocks sound until you click once in the WhatsApp tab. Click anywhere in WhatsApp to fix it. WhatsApp's own sound was used where possible.",
+  healthNoChatInfo:
+    "Messages are arriving, but WhatsApp isn't saying which chat they're from, so only your default sound can play. WhatsApp may have changed. Copy the diagnostics in settings.",
+  healthHookMissing:
+    "Can't reach the WhatsApp page. Reload your WhatsApp tab. If this stays, WhatsApp may have changed.",
+  healthHookOverwritten:
+    "WhatsApp replaced something we rely on. Reload your WhatsApp tab; if it keeps happening, WhatsApp changed.",
+  diagnosticsTitle: "Diagnostics",
+  diagnosticsHint:
+    "If a WhatsApp update stops this working, copy the diagnostics and send them with your report. They contain counts and file types only: no chat names, messages or sounds.",
+  copyDiagnostics: "Copy diagnostics",
+  diagnosticsCopied: "Copied. Paste it where you report the problem.",
+  diagnosticsManual: "Couldn't copy automatically. Select the text below and copy it.",
+
   popupRecent: "Recent chats",
   popupRecentEmpty: "Chats that message you will show up here.",
   popupNeedSound: "Add a sound in settings to get started.",

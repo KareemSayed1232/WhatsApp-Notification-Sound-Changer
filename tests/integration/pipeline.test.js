@@ -127,7 +127,9 @@ async function openTab({ stored = {}, realPermission = "denied" } = {}) {
   await new Promise((resolve) => window.setTimeout(resolve, 10)); // let the bridge load its state
 }
 
-const whatsappNotifies = (title, options) => new window.Notification(title, options);
+// Real WhatsApp always passes silent: true and plays its own sound (measured, Oct 2026).
+const whatsappNotifies = (title, options) =>
+  new window.Notification(title, { silent: true, ...options });
 const whatsappPlaysMessageSound = () => new window.Audio(INCOMING).play();
 
 beforeEach(() => openTab());

@@ -2,7 +2,14 @@ import { cleanDisplayName, normalizeName } from "../core/normalize.mjs";
 
 // WhatsApp Web's own markup. It is not a public API and can change, so every lookup has fallbacks
 // and the caller treats "found nothing" as an expected outcome, not an error.
-const PANE_SELECTOR = "#pane-side";
+// The element holding the chat list, most specific first. WhatsApp has renamed these before, so a
+// few accessible-name fallbacks follow the id.
+const PANE_SELECTORS = [
+  "#pane-side",
+  '[data-testid="chat-list"]',
+  '[aria-label="Chat list"]',
+  '[aria-label*="chat list" i]',
+];
 // Observed on WhatsApp Web (Oct 2026): rows carry data-testid="cell-frame-container" and sit in a
 // role="grid" list; older builds used role="listitem". Accept any of them.
 const ROW_SELECTOR = '[role="row"], [role="listitem"], [data-testid="cell-frame-container"]';
@@ -15,8 +22,28 @@ const TITLE_SELECTORS = [
 ];
 const MAX_NAME_LENGTH = 100;
 
+/** The chat list element, or null while WhatsApp has not rendered one. */
+export function findChatPane(root) {
+  for (const selector of PANE_SELECTORS) {
+    const pane = root.querySelector(selector);
+    if (pane) return pane;
+  }
+  return null;
+}
+
+/** The element that actually scrolls: the pane, or the nearest scrollable thing around it. */
+function scrollerFor(pane) {
+  for (let el = pane; el; el = el.parentElement) {
+    if (el.scrollHeight > el.clientHeight) return el;
+  }
+  return pane;
+}
+
 function isNotAChat(row) {
   const button = row.closest("button");
+  // Language-independent: real chats sit in a list row; the "Archived" and "Locked chats"
+  // entries are plain buttons outside any row (captured Oct 2026).
+  if (button && !row.closest('[role="row"], [role="listitem"]')) return true;
   const label = `${button?.getAttribute("aria-label") ?? ""} ${button?.dataset?.testid ?? ""}`;
   return NOT_A_CHAT.test(label);
 }
@@ -33,7 +60,7 @@ function nameFromRow(row) {
 
 /** The chat names currently rendered in WhatsApp's chat list, in on-screen order, de-duplicated. */
 export function readChatNames(root) {
-  const pane = root.querySelector(PANE_SELECTOR);
+  const pane = findChatPane(root);
   if (!pane) return [];
 
   const names = [];
@@ -57,6 +84,54 @@ export function readChatNames(root) {
   return names;
 }
 
+// The unread counter on a chat row (captured Oct 2026: <span data-testid="icon-unread-count"
+// aria-label="2 unread messages">2</span>). The label is a fallback; it is in the UI language.
+const UNREAD_SELECTOR = '[data-testid="icon-unread-count"]';
+const UNREAD_LABEL = /\bunread\b/i;
+// A muted chat's row carries <… data-testid="mute-notifications-refreshed" aria-label="Muted chat">
+// (captured Oct 2026). Any test id or icon mentioning "mute" counts, so a renamed marker still
+// does; the English label is a last fallback.
+const MUTED_SELECTOR =
+  '[data-testid*="mute" i], [data-icon*="mute" i], [aria-label="Muted chat" i]';
+
+function unreadCountOf(row) {
+  const badge =
+    row.querySelector(UNREAD_SELECTOR) ??
+    [...row.querySelectorAll("[aria-label]")].find((el) =>
+      UNREAD_LABEL.test(el.getAttribute("aria-label"))
+    );
+  if (!badge) return 0;
+  // Only a number counts: a "marked as unread" dot is the user's doing, not a new message.
+  const text = badge.textContent.trim();
+  if (/^\d+$/.test(text)) return Number(text);
+  const fromLabel = /(\d+)/.exec(badge.getAttribute("aria-label") ?? "");
+  return fromLabel ? Number(fromLabel[1]) : 0;
+}
+
+/**
+ * Every rendered chat with its unread number and whether it is muted, keyed by normalized name:
+ * Map(key -> { name, count, muted }). The Archived / Locked chats entries are left out.
+ */
+export function readUnreadCounts(root) {
+  const counts = new Map();
+  const pane = findChatPane(root);
+  if (!pane) return counts;
+  for (const row of pane.querySelectorAll(ROW_SELECTOR)) {
+    const name = nameFromRow(row);
+    if (!name || name.length > MAX_NAME_LENGTH) continue;
+    const key = normalizeName(name);
+    const count = unreadCountOf(row);
+    const muted = row.querySelector(MUTED_SELECTOR) !== null;
+    const seen = counts.get(key);
+    counts.set(key, {
+      name: seen?.name ?? name,
+      count: Math.max(seen?.count ?? 0, count),
+      muted: Boolean(seen?.muted) || muted,
+    });
+  }
+  return counts;
+}
+
 const sleep = (ms) => new Promise((resolve) => globalThis.setTimeout(resolve, ms));
 
 /**
@@ -65,8 +140,9 @@ const sleep = (ms) => new Promise((resolve) => globalThis.setTimeout(resolve, ms
  * Resolves { ok, reason?, names }.
  */
 export async function scanChatList({ document, wait = sleep, maxSteps = 400 }) {
-  const pane = document.querySelector(PANE_SELECTOR);
-  if (!pane) return { ok: false, reason: "no-chat-list", names: [] };
+  const chatPane = findChatPane(document);
+  if (!chatPane) return { ok: false, reason: "no-chat-list", names: [] };
+  const pane = scrollerFor(chatPane);
 
   const found = new Map(); // normalized name -> display name, in first-seen order
   const collect = () => {

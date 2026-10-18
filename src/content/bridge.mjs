@@ -1,15 +1,34 @@
 import { parseDataUrl } from "../core/audio-data.mjs";
-import { decidePlayback, parseSenderFromBody } from "../core/matcher.mjs";
-import { cleanDisplayName } from "../core/normalize.mjs";
+import {
+  decideForChatName,
+  decidePlayback,
+  findRebind,
+  parseSenderFromBody,
+} from "../core/matcher.mjs";
+import { HEALTH_KEY, applySignal, classifyTag } from "../core/health.mjs";
+import { cleanDisplayName, normalizeName } from "../core/normalize.mjs";
 import {
   EVENT_ANSWER,
   EVENT_ASK,
+  EVENT_PING,
   EVENT_PLAY,
+  EVENT_PONG,
   EVENT_REPLACE,
+  EVENT_SIGNAL,
   MSG_GET_SOUND,
+  MSG_REBIND,
   MSG_SEEN,
 } from "../core/protocol.mjs";
 import { readState } from "../core/state-store.mjs";
+
+const HEALTH_FLUSH_MS = 1000;
+const HOOK_CHECK_MS = 30_000;
+// A new message seen in the chat list waits this long for WhatsApp's own notification or sound;
+// if either came within WHATSAPP_ACTIVITY_MS of it, that path already handled the message.
+const INCOMING_WAIT_MS = 700;
+const WHATSAPP_ACTIVITY_MS = 2000;
+// Chat-id kinds that are always one-to-one chats (see classifyTag).
+const ONE_TO_ONE = ["lid", "phone"];
 
 const text = (value) => (typeof value === "string" ? value : "");
 
@@ -43,6 +62,61 @@ export function startBridge({
   log = () => {},
 }) {
   let state = null;
+  let lastWhatsAppActivityAt = -Infinity;
+  const incomingTimers = new Set();
+  let queuedSignals = [];
+  let flushTimer = null;
+  let checkTimer = null;
+
+  /**
+   * Record what happened to WhatsApp's sound so the popup can say whether things still work.
+   * Signals are batched, then folded into the stored health record (read-modify-write, so
+   * several WhatsApp tabs add to the same record). Best effort: never allowed to disturb sounds.
+   */
+  function record(signal) {
+    if (queuedSignals.length < 100) queuedSignals.push(signal); // the page can send these too
+    if (flushTimer !== null) return;
+    flushTimer = globalThis.setTimeout(flush, HEALTH_FLUSH_MS);
+    flushTimer?.unref?.();
+  }
+
+  async function flush() {
+    flushTimer = null;
+    const batch = queuedSignals;
+    queuedSignals = [];
+    if (batch.length === 0 || typeof chrome.storage?.local?.set !== "function") return;
+    try {
+      const stored = await chrome.storage.local.get([HEALTH_KEY]);
+      const at = Date.now();
+      const health = batch.reduce(
+        (acc, signal) => applySignal(acc, signal, at),
+        stored?.[HEALTH_KEY]
+      );
+      await chrome.storage.local.set({ [HEALTH_KEY]: health });
+    } catch {
+      // The extension context may be gone; the status line just stays as it was.
+    }
+  }
+
+  /** Is the page-world hook still installed and still the one WhatsApp calls? */
+  function checkHook() {
+    let pong = null;
+    const onPong = (event) => (pong = parse(event.detail));
+    document.addEventListener(EVENT_PONG, onPong);
+    try {
+      document.dispatchEvent(new CustomEventCtor(EVENT_PING));
+    } finally {
+      document.removeEventListener(EVENT_PONG, onPong);
+    }
+    const state = !pong ? "missing" : pong.notification && pong.play ? "ok" : "overwritten";
+    log("hook check ->", state);
+    record({ type: "hook", state });
+  }
+
+  function onSignal(event) {
+    const signal = parse(event.detail);
+    if (signal && typeof signal === "object") record(signal);
+  }
 
   async function refresh() {
     try {
@@ -57,17 +131,39 @@ export function startBridge({
     const items = [];
     const name = cleanDisplayName(title);
     if (name) items.push({ name, kind: "chat", ...(tag ? { chatId: tag } : {}) });
-    if (tag.endsWith("@g.us")) {
+    // Groups put "Sender: text" in the body. One-to-one chats never do ("Note: ..." is just a
+    // message), so only known 1:1 ids are excluded: a group id format WhatsApp introduces later
+    // still has its senders collected.
+    if (!ONE_TO_ONE.includes(classifyTag(tag))) {
       const sender = cleanDisplayName(parseSenderFromBody(body));
-      if (sender) items.push({ name: sender, kind: "sender" });
+      if (sender && normalizeName(sender) !== normalizeName(name)) {
+        items.push({ name: sender, kind: "sender" });
+      }
     }
     if (items.length === 0) return;
+    send({ type: MSG_SEEN, items });
+  }
+
+  /** Fire-and-forget message to the background worker. */
+  function send(message) {
     try {
-      const result = chrome.runtime.sendMessage({ type: MSG_SEEN, items });
+      const result = chrome.runtime.sendMessage(message);
       if (result && typeof result.catch === "function") result.catch(() => {});
     } catch {
       // The extension context may be gone; sounds still work from the cached state.
     }
+  }
+
+  /**
+   * Muting WhatsApp's sound only makes sense if ours can start. While the browser still blocks
+   * audio (no click in the tab yet), keep WhatsApp's own sound rather than leave silence.
+   */
+  function playable(decision) {
+    if (decision?.action !== "play" || typeof engine.canPlay !== "function") return decision;
+    if (engine.canPlay()) return decision;
+    log("our sound can't start yet (browser blocks audio) -> WhatsApp's own sound");
+    record({ type: "play-blocked" });
+    return { action: "native" };
   }
 
   function answerFor(question) {
@@ -84,7 +180,10 @@ export function startBridge({
           body: text(question.body),
         };
         reportSeen(notification);
-        const decision = decidePlayback({ notification, rules, sounds, settings });
+        record({ type: "notification", tag: notification.tag });
+        const decision = playable(decidePlayback({ notification, rules, sounds, settings }));
+        const rebind = findRebind(notification, rules);
+        if (rebind) send({ type: MSG_REBIND, ...rebind });
         log("decision for chat", notification.tag || notification.title, "->", decision);
         return { mode: "managed", decision, showPopup: settings.showPopups };
       }
@@ -92,7 +191,7 @@ export function startBridge({
       case "default-sound":
         if (!settings.enabled) return { decision: { action: "native" } };
         {
-          const decision = decidePlayback({ notification: {}, rules, sounds, settings });
+          const decision = playable(decidePlayback({ notification: {}, rules, sounds, settings }));
           log("sound with no notification (tab focused?) ->", decision);
           return { decision };
         }
@@ -115,6 +214,9 @@ export function startBridge({
     if (isOrphaned()) return stop(); // Go quiet: the hook then leaves WhatsApp untouched.
     const question = parse(event.detail);
     if (!state || !question) return; // Not ready: the hook leaves WhatsApp untouched.
+    if (question.kind === "notification" || question.kind === "default-sound") {
+      lastWhatsAppActivityAt = Date.now();
+    }
     const answer = answerFor(question);
     if (answer) {
       document.dispatchEvent(new CustomEventCtor(EVENT_ANSWER, { detail: JSON.stringify(answer) }));
@@ -125,13 +227,42 @@ export function startBridge({
     if (isOrphaned()) return stop();
     const request = parse(event.detail);
     if (!request || typeof request.soundId !== "string") return;
-    Promise.resolve(engine.play(request.soundId, request.volume)).then((started) =>
-      log("playback of", request.soundId, started ? "started" : "FAILED (see [WANSC] error above)")
-    );
+    Promise.resolve(engine.play(request.soundId, request.volume)).then((started) => {
+      log("playback of", request.soundId, started ? "started" : "FAILED (see [WANSC] error above)");
+      record({ type: started ? "played" : "play-failed" });
+    });
+  }
+
+  /**
+   * A new message seen in the chat list while WhatsApp is focused. Some browsers' WhatsApp makes
+   * no notification and no sound then; if WhatsApp did neither, play the chat's sound ourselves.
+   */
+  function onIncomingChat(name) {
+    if (stopped || typeof name !== "string" || !name) return;
+    const seenAt = Date.now();
+    const timer = globalThis.setTimeout(() => {
+      incomingTimers.delete(timer);
+      if (stopped || !state || isOrphaned()) return;
+      if (Math.abs(lastWhatsAppActivityAt - seenAt) < WHATSAPP_ACTIVITY_MS) return; // handled
+      const { settings, rules, sounds } = state;
+      const decision = decideForChatName({ name, rules, sounds, settings });
+      log("new message in", name, "while focused, no sound from WhatsApp ->", decision);
+      if (decision.action !== "play") return;
+      if (typeof engine.canPlay === "function" && !engine.canPlay()) {
+        record({ type: "play-blocked" });
+        return;
+      }
+      Promise.resolve(engine.play(decision.soundId, decision.volume)).then((started) => {
+        record({ type: started ? "played" : "play-failed" });
+        if (started) record({ type: "self-played" });
+      });
+    }, INCOMING_WAIT_MS);
+    incomingTimers.add(timer);
   }
 
   function onStorageChanged(changes, area) {
     if (area !== "local") return;
+    if (Object.keys(changes).every((key) => key === HEALTH_KEY)) return; // our own status writes
     if (changes.sounds) engine.invalidate();
     refresh();
   }
@@ -144,6 +275,11 @@ export function startBridge({
     document.removeEventListener(EVENT_ASK, onAsk);
     document.removeEventListener(EVENT_PLAY, onPlay);
     document.removeEventListener(EVENT_REPLACE, stop);
+    document.removeEventListener(EVENT_SIGNAL, onSignal);
+    globalThis.clearInterval(checkTimer);
+    for (const timer of incomingTimers) globalThis.clearTimeout(timer);
+    incomingTimers.clear();
+    globalThis.clearTimeout(flushTimer);
     try {
       chrome.storage.onChanged.removeListener?.(onStorageChanged);
     } catch {
@@ -156,7 +292,15 @@ export function startBridge({
   document.addEventListener(EVENT_ASK, onAsk);
   document.addEventListener(EVENT_PLAY, onPlay);
   document.addEventListener(EVENT_REPLACE, stop);
+  document.addEventListener(EVENT_SIGNAL, onSignal);
   chrome.storage.onChanged.addListener(onStorageChanged);
 
-  return { ready: refresh(), stop };
+  // WhatsApp could replace our wrappers later, so check now and then. A check is one DOM event.
+  checkHook();
+  checkTimer = globalThis.setInterval(() => {
+    if (!isOrphaned()) checkHook();
+  }, HOOK_CHECK_MS);
+  checkTimer?.unref?.();
+
+  return { ready: refresh(), stop, onIncomingChat };
 }

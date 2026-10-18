@@ -5,6 +5,7 @@ import {
   refreshChatsFromWhatsApp,
 } from "./chat-actions.mjs";
 import { fillSelect, h } from "./dom.mjs";
+import { mountHealth } from "./health-ui.mjs";
 import { icon } from "./icons.mjs";
 import { STRINGS as S, errorMessage } from "./strings.mjs";
 import {
@@ -257,6 +258,12 @@ export async function mountOptions({
         el("h2", { id: "h-popups" }, S.popupsTitle),
         showPopups.node,
         el("p", { class: "hint" }, S.popupsHint)
+      ),
+      el(
+        "section",
+        { class: "card", "aria-labelledby": "h-health" },
+        el("h2", { id: "h-health" }, S.healthTitle),
+        mountHealth({ document, stateStore, chrome, diagnostics: true })
       )
     ),
     el("footer", { class: "page-footer" }, S.privacy)

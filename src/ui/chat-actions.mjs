@@ -1,9 +1,7 @@
 import { normalizeName } from "../core/normalize.mjs";
-import { MSG_SCAN } from "../core/protocol.mjs";
+import { MSG_SCAN, WHATSAPP_MATCH as WHATSAPP_TABS } from "../core/protocol.mjs";
 import { STRINGS as S } from "./strings.mjs";
 import { CHOICE_DEFAULT, choiceToAction } from "./view-model.mjs";
-
-const WHATSAPP_TABS = "https://web.whatsapp.com/*";
 
 /**
  * Apply a sound choice to one chat row, on every identity the row stands for. Choosing "Default

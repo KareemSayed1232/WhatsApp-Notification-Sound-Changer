@@ -1,6 +1,6 @@
 import { normalizeName } from "../core/normalize.mjs";
 import { EVENT_REPLACE, MSG_CHATS, MSG_SCAN } from "../core/protocol.mjs";
-import { readChatNames, scanChatList } from "./chat-list.mjs";
+import { findChatPane, readChatNames, scanChatList } from "./chat-list.mjs";
 
 const CHUNK = 100;
 const DEBOUNCE_MS = 1500;
@@ -68,7 +68,7 @@ export function startChatWatcher({
 
   /** Start watching the chat list once WhatsApp has rendered it. */
   function attach() {
-    const pane = document.querySelector("#pane-side");
+    const pane = findChatPane(document);
     if (!pane) return false;
     bootObserver?.disconnect();
     paneObserver = new MutationObserverCtor(schedule);

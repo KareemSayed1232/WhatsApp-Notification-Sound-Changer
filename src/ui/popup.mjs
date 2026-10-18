@@ -5,6 +5,7 @@ import {
   refreshChatsFromWhatsApp,
 } from "./chat-actions.mjs";
 import { fillSelect, h } from "./dom.mjs";
+import { mountHealth } from "./health-ui.mjs";
 import { icon } from "./icons.mjs";
 import { STRINGS as S, errorMessage } from "./strings.mjs";
 import {
@@ -141,6 +142,7 @@ export async function mountPopup({ document, stateStore, chrome, useUploadWindow
     ),
     message,
     needSound,
+    mountHealth({ document, stateStore, chrome }),
     el(
       "section",
       { class: "block sound-block" },

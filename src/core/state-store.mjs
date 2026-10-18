@@ -1,4 +1,5 @@
 import { parseDataUrl } from "./audio-data.mjs";
+import { HEALTH_KEY, sanitizeHealth } from "./health.mjs";
 import { cleanDisplayName, normalizeName } from "./normalize.mjs";
 import {
   MAX_KNOWN_CHATS,
@@ -156,6 +157,11 @@ export function createStateStore({
     async load() {
       await ready();
       return read();
+    },
+
+    /** The status record the WhatsApp tab keeps (counters and shapes only). Read-only here. */
+    async loadHealth() {
+      return sanitizeHealth((await storage.get([HEALTH_KEY]))?.[HEALTH_KEY]);
     },
 
     addRule: (input) =>

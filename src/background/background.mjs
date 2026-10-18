@@ -1,10 +1,24 @@
 import { bytesToDataUrl } from "../core/audio-data.mjs";
-import { MSG_CHATS, MSG_GET_SOUND, MSG_SEEN } from "../core/protocol.mjs";
+import {
+  MSG_CHATS,
+  MSG_GET_SOUND,
+  MSG_REBIND,
+  MSG_SEEN,
+  WHATSAPP_MATCH,
+  WHATSAPP_ORIGIN as ORIGIN,
+} from "../core/protocol.mjs";
 
-const WHATSAPP_ORIGIN = "https://web.whatsapp.com/";
-const WHATSAPP_TABS = "https://web.whatsapp.com/*";
+const WHATSAPP_ORIGIN = `${ORIGIN}/`;
+const WHATSAPP_TABS = WHATSAPP_MATCH;
 const MAX_SEEN_ITEMS = 4;
 const MAX_CHAT_NAMES_PER_MESSAGE = 200;
+const MAX_CHAT_ID_LENGTH = 100;
+
+/** A WhatsApp chat id looks like "<digits>@<server>". */
+const isChatId = (value) =>
+  typeof value === "string" &&
+  value.length <= MAX_CHAT_ID_LENGTH &&
+  /^[^@\s]+@[^@\s]+$/.test(value);
 
 /**
  * The only place that touches IndexedDB and migrations. Content scripts ask it for sound bytes
@@ -39,6 +53,13 @@ export function startBackground({ chrome, stateStore, soundStore }) {
 
     if (message.type === MSG_CHATS && Array.isArray(message.names)) {
       stateStore.recordChats(message.names.slice(0, MAX_CHAT_NAMES_PER_MESSAGE)).catch(() => {});
+      return false;
+    }
+
+    if (message.type === MSG_REBIND) {
+      if (typeof message.ruleId === "string" && isChatId(message.chatId)) {
+        stateStore.updateRule(message.ruleId, { chatId: message.chatId }).catch(() => {});
+      }
       return false;
     }
 

@@ -88,6 +88,22 @@ export function createAudioEngine({
       }
     },
 
+    /**
+     * Can a sound start right now? Asked synchronously before WhatsApp's own sound is muted, so a
+     * browser that is still blocking audio gets WhatsApp's sound instead of silence. While
+     * blocked, it asks the browser to resume so the next message can use our sound.
+     */
+    canPlay() {
+      try {
+        const ctx = getContext();
+        if (ctx.state === "running") return true;
+        Promise.resolve(ctx.resume?.()).catch(() => {});
+        return false;
+      } catch {
+        return false;
+      }
+    },
+
     /** Forget decoded audio, for one sound or all of them (the stored bytes changed). */
     invalidate(soundId) {
       if (soundId === undefined) decoded.clear();
