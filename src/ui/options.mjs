@@ -13,6 +13,7 @@ import {
   buildChatRows,
   buildPeopleRows,
   buildSoundRows,
+  chatsToShow,
   defaultSoundHint,
   soundChoices,
 } from "./view-model.mjs";
@@ -119,6 +120,7 @@ export async function mountOptions({
   });
   const chatList = el("ul", { id: "chatList", class: "chat-list", onFocusout: onChatsFocusOut });
   const chatsEmpty = el("p", { class: "empty", id: "chatsEmpty" });
+  const chatsMore = el("p", { class: "hint", id: "chatsMore", hidden: true }, S.chatsMore);
   const refreshButton = el(
     "button",
     { id: "refreshChats", class: "btn btn-secondary", type: "button", onClick: onRefresh },
@@ -219,6 +221,7 @@ export async function mountOptions({
         el("p", { class: "hint" }, S.chatsHint),
         el("div", { class: "toolbar" }, search, refreshButton),
         chatList,
+        chatsMore,
         chatsEmpty,
         assignFile,
         people,
@@ -402,15 +405,23 @@ export async function mountOptions({
   }
 
   function renderChats() {
-    const rows = buildChatRows(state, filter);
-    chatList.replaceChildren(...rows.map(chatRow));
-    chatsEmpty.hidden = rows.length > 0;
-    const anything = state.recentSenders.length + state.rules.length + state.knownChats.length;
-    chatsEmpty.textContent = anything === 0 ? S.chatsEmpty : S.rulesNoMatch;
+    // Only chats that already have a sound are listed; the search finds the rest.
+    const view = chatsToShow(buildChatRows(state), filter);
+    chatList.replaceChildren(...view.rows.map(chatRow));
+    chatsEmpty.hidden = view.rows.length > 0;
+    if (view.rows.length === 0) {
+      const anything = state.recentSenders.length + state.rules.length + state.knownChats.length;
+      chatsEmpty.textContent = view.searching
+        ? S.chatsNoMatch
+        : anything === 0
+          ? S.chatsEmpty
+          : S.chatsSearchPrompt;
+    }
+    chatsMore.hidden = view.more === 0;
 
-    const peopleRows = buildPeopleRows(state, filter);
-    peopleList.replaceChildren(...peopleRows.map(chatRow));
-    people.hidden = peopleRows.length === 0;
+    const peopleView = chatsToShow(buildPeopleRows(state), filter);
+    peopleList.replaceChildren(...peopleView.rows.map(chatRow));
+    people.hidden = peopleView.rows.length === 0;
   }
 
   function renderAll() {

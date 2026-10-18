@@ -12,9 +12,12 @@ import {
   CHOICE_UPLOAD,
   buildChatRows,
   buildSoundRows,
+  chatsToShow,
   defaultSoundHint,
   soundChoices,
 } from "./view-model.mjs";
+
+const POPUP_LIMIT = 8;
 
 /**
  * The toolbar popup: your chats, each with one dropdown to pick its sound. Uploading a new sound
@@ -28,6 +31,7 @@ export async function mountPopup({ document, stateStore, chrome }) {
   let state = await stateStore.load();
   let toastTimer = null;
   let chatsStale = false;
+  let query = "";
 
   // ---------------------------------------------------------------- controls
 
@@ -69,6 +73,18 @@ export async function mountPopup({ document, stateStore, chrome }) {
 
   const chatList = el("ul", { id: "chatList", class: "chat-list", onFocusout: onChatsFocusOut });
   const chatsEmpty = el("p", { class: "empty", id: "chatsEmpty" }, S.chatsEmpty);
+  const chatsMore = el("p", { class: "hint", id: "chatsMore", hidden: true }, S.chatsMore);
+  const chatSearch = el("input", {
+    id: "chatSearch",
+    class: "input",
+    type: "search",
+    placeholder: S.searchPlaceholder,
+    "aria-label": S.search,
+    onInput: (event) => {
+      query = event.target.value;
+      renderChats();
+    },
+  });
   const refreshButton = el(
     "button",
     {
@@ -144,7 +160,9 @@ export async function mountPopup({ document, stateStore, chrome }) {
       "section",
       { class: "block" },
       el("div", { class: "block-head" }, el("h2", {}, S.chatsTitle), refreshButton),
+      chatSearch,
       chatList,
+      chatsMore,
       chatsEmpty
     ),
     el(
@@ -199,9 +217,19 @@ export async function mountPopup({ document, stateStore, chrome }) {
   }
 
   function renderChats() {
-    const rows = buildChatRows(state);
-    chatsEmpty.hidden = rows.length > 0;
-    chatList.replaceChildren(...rows.map(chatRow));
+    // Only chats that already have a sound are listed; the search finds the rest.
+    const view = chatsToShow(buildChatRows(state), query, POPUP_LIMIT);
+    chatList.replaceChildren(...view.rows.map(chatRow));
+    chatsEmpty.hidden = view.rows.length > 0;
+    if (view.rows.length === 0) {
+      const anything = state.recentSenders.length + state.rules.length + state.knownChats.length;
+      chatsEmpty.textContent = view.searching
+        ? S.chatsNoMatch
+        : anything === 0
+          ? S.chatsEmpty
+          : S.chatsSearchPrompt;
+    }
+    chatsMore.hidden = view.more === 0;
   }
 
   function render() {

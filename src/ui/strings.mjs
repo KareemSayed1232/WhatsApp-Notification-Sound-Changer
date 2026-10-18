@@ -20,7 +20,7 @@ export const STRINGS = {
   kindSender: "A person inside a group",
   soundLabel: "Sound",
   search: "Search",
-  searchPlaceholder: "Search chats…",
+  searchPlaceholder: "Search your chats to give one a sound…",
   rulesEmpty: "No chats yet. Add one above, or pick from recent chats.",
   rulesNoMatch: "Nothing matches that search.",
   colName: "Chat",
@@ -44,8 +44,12 @@ export const STRINGS = {
   defaultBadge: "Default",
 
   chatsTitle: "Your chats",
-  chatsHint: "Pick a sound for each chat. Don't see one? Press Refresh while WhatsApp Web is open.",
+  chatsHint:
+    "Search for a chat and pick its sound. Chats that already have their own sound are listed here.",
   chatsEmpty: "No chats yet. Open WhatsApp Web, then press Refresh to load your chats.",
+  chatsSearchPrompt: "No chat has its own sound yet. Search above to find one and pick its sound.",
+  chatsNoMatch: "No chat matches that. Press Refresh if it's missing, or add it by name below.",
+  chatsMore: "More matches not shown. Keep typing to narrow it down.",
   refreshChats: "Refresh chats",
   scanning: "Reading your WhatsApp chat list…",
   scanNoTab: "Open WhatsApp Web in a tab first, then try again.",

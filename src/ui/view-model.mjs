@@ -88,14 +88,16 @@ function chatRowLabel(ids) {
 function toRow({ key, name, kind, kindText, targets, rules, sounds, lastSeen }) {
   // Prefer the rule bound to a chat id over a name-only one when they disagree.
   const shown = rules.find((rule) => rule.chatId) ?? rules[0] ?? null;
+  const choice = shown ? ruleToChoice(shown, sounds) : CHOICE_DEFAULT;
   return {
     key,
     name,
     kind,
     kindLabel: kindText,
-    hasRule: rules.length > 0,
+    // A rule that resolves to "Default sound" (e.g. its sound was deleted) is no custom setting.
+    hasRule: rules.some((rule) => ruleToChoice(rule, sounds) !== CHOICE_DEFAULT),
     linked: rules.some((rule) => rule.chatId),
-    choice: shown ? ruleToChoice(shown, sounds) : CHOICE_DEFAULT,
+    choice,
     targets,
     lastSeen,
   };
@@ -164,6 +166,24 @@ export function buildChatRows(state, filterText = "") {
     });
 
   return rows.filter((row) => !needle || normalizeName(row.name).includes(needle));
+}
+
+export const MAX_SHOWN = 25;
+
+/**
+ * What to display: with an empty search, only the chats that already have a sound of their own
+ * (so a long WhatsApp chat list never floods the screen); with a search, the matching chats.
+ * `more` is how many matches were cut off by `limit`.
+ */
+export function chatsToShow(rows, query, limit = MAX_SHOWN) {
+  const needle = normalizeName(query);
+  if (!needle) return { rows: rows.filter((row) => row.hasRule), more: 0, searching: false };
+  const matches = rows.filter((row) => normalizeName(row.name).includes(needle));
+  return {
+    rows: matches.slice(0, limit),
+    more: Math.max(0, matches.length - limit),
+    searching: true,
+  };
 }
 
 /**

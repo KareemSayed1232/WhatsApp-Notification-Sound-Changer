@@ -30,10 +30,9 @@ let counter;
 let changeListeners;
 let player;
 let confirmFn;
-
-/** `setup(store)` runs before the page loads, to seed sounds/rules through the real store. */
 let tabs;
 
+/** `setup(store)` runs before the page loads, to seed sounds/rules through the real store. */
 async function mount({ initial = {}, setup } = {}) {
   tabs = {
     query: vi.fn(async () => [{ id: 5, active: true }]),
@@ -71,8 +70,19 @@ const twoSounds = async (s) => {
   await s.addSound(fakeFile("Chime.mp3")); // id2
 };
 
-const rowOf = (name) =>
+/** Type into the search box, like a user would. */
+const search = (query) => {
+  $("#search").value = query;
+  fire($("#search"), "input");
+};
+const shownNames = () => $$("#chatList .name").map((n) => n.textContent);
+const findRow = (name) =>
   $$("#chatList li").find((li) => li.querySelector(".name").textContent === name);
+/** The row for a chat, found by searching for it first (chats are only listed when searched). */
+const rowOf = (name) => {
+  if (!findRow(name)) search(name);
+  return findRow(name);
+};
 const selectOf = (name) => rowOf(name).querySelector("select");
 const choose = (name, value) => {
   const select = selectOf(name);
@@ -88,7 +98,7 @@ const pickFile = (...files) => {
 beforeEach(() => mount());
 
 describe("first run", () => {
-  it("explains that chats show up once they message you, and has a way to add one by name", () => {
+  it("explains that chats load from WhatsApp, and has a last-resort way to add one by name", () => {
     expect($("#chatsEmpty").hidden).toBe(false);
     expect(text("#chatsEmpty")).toMatch(/No chats yet/);
     expect($("#addByName")).not.toBeNull();
@@ -110,14 +120,79 @@ describe("first run", () => {
   });
 });
 
+describe("the list shows only chats that have a sound; search finds the rest", () => {
+  beforeEach(() =>
+    mount({
+      initial: { recentSenders, knownChats: [{ name: "Mom" }, { name: "Work" }] },
+      setup: async (s) => {
+        await twoSounds(s);
+        await s.addRule({ kind: "chat", match: "Mom", action: "sound", soundId: "id1" });
+      },
+    })
+  );
+
+  it("starts with just the chats you already configured, not every chat", () => {
+    expect(shownNames()).toEqual(["Mom"]);
+    expect(rowOf("Mom").classList.contains("is-set")).toBe(true);
+  });
+
+  it("finds any chat as you type, newest activity first", () => {
+    search("a");
+    expect(shownNames()).toEqual(["Radwa", "Family"]);
+    search("wor");
+    expect(shownNames()).toEqual(["Work"]);
+  });
+
+  it("matches without caring about case, accents on invisible marks", () => {
+    search("  RAD‎");
+    expect(shownNames()).toEqual(["Radwa"]);
+  });
+
+  it("says what to do when nothing matches", () => {
+    search("zzz");
+    expect(shownNames()).toEqual([]);
+    expect(text("#chatsEmpty")).toMatch(/No chat matches/);
+    expect(text("#chatsEmpty")).toMatch(/Refresh/);
+  });
+
+  it("returns to the configured chats when the search is cleared", () => {
+    search("a");
+    search("");
+    expect(shownNames()).toEqual(["Mom"]);
+  });
+
+  it("keeps a chat on screen after you give it a sound while searching", async () => {
+    search("radwa");
+    choose("Radwa", "id2");
+    await vi.waitFor(() => expect(findRow("Radwa").classList.contains("is-set")).toBe(true));
+    expect(shownNames()).toEqual(["Radwa"]);
+    search("");
+    expect(shownNames().sort()).toEqual(["Mom", "Radwa"]);
+  });
+
+  it("drops a chat from the default view once it is set back to the default sound", async () => {
+    choose("Mom", "__default");
+    await vi.waitFor(async () => expect((await store.load()).rules).toEqual([]));
+    search("");
+    expect(shownNames()).toEqual([]);
+    expect(text("#chatsEmpty")).toMatch(/Search above/);
+  });
+
+  it("limits a big result list and says there are more", async () => {
+    await mount({
+      initial: { knownChats: Array.from({ length: 60 }, (_, i) => ({ name: `Chat ${i}` })) },
+      setup: twoSounds,
+    });
+    search("chat");
+    expect(shownNames()).toHaveLength(25);
+    expect($("#chatsMore").hidden).toBe(false);
+    search("chat 5");
+    expect($("#chatsMore").hidden).toBe(true);
+  });
+});
+
 describe("your chats: one dropdown per chat", () => {
   beforeEach(() => mount({ initial: { recentSenders }, setup: twoSounds }));
-
-  it("lists the chats that messaged you, newest first, hiding the empty message", () => {
-    expect($("#chatsEmpty").hidden).toBe(true);
-    expect($$("#chatList .name").map((n) => n.textContent)).toEqual(["Radwa", "Family"]);
-    expect(rowOf("Family").textContent).toContain("Group");
-  });
 
   it("offers default, silent, every loaded sound, and uploading a new one", () => {
     const labels = [...selectOf("Radwa").options].map((o) => o.textContent);
@@ -128,6 +203,7 @@ describe("your chats: one dropdown per chat", () => {
       "Ping.mp3",
       "＋ Upload new sound…",
     ]);
+    expect(rowOf("Family").textContent).toContain("Group");
   });
 
   it("sets a chat's sound with a single change, bound to the chat id", async () => {
@@ -140,14 +216,16 @@ describe("your chats: one dropdown per chat", () => {
       action: "sound",
       soundId: "id1",
     });
-    await vi.waitFor(() => expect(rowOf("Radwa").classList.contains("is-set")).toBe(true));
+    await vi.waitFor(() => expect(findRow("Radwa").classList.contains("is-set")).toBe(true));
     expect(selectOf("Radwa").value).toBe("id1");
     expect(text('[data-sound-id="id1"] .meta')).toMatch(/used by 1/);
   });
 
   it("keeps keyboard focus on the dropdown after a change", async () => {
     choose("Radwa", "id1");
-    await vi.waitFor(() => expect(document.activeElement).toBe(selectOf("Radwa")));
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(findRow("Radwa").querySelector("select"))
+    );
   });
 
   it("can silence a chat", async () => {
@@ -160,21 +238,12 @@ describe("your chats: one dropdown per chat", () => {
 
   it("returns a chat to the default sound by removing its rule", async () => {
     choose("Radwa", "id1");
-    await vi.waitFor(() => expect(rowOf("Radwa").classList.contains("is-set")).toBe(true));
+    await vi.waitFor(() => expect(findRow("Radwa").classList.contains("is-set")).toBe(true));
     choose("Radwa", "__default");
     await vi.waitFor(async () => expect((await store.load()).rules).toEqual([]));
-    expect(rowOf("Radwa")).toBeTruthy(); // still listed, since it has messaged you
-    expect(rowOf("Radwa").classList.contains("is-set")).toBe(false);
+    expect(findRow("Radwa")).toBeTruthy(); // still shown while it is the search result
+    expect(findRow("Radwa").classList.contains("is-set")).toBe(false);
     expect(selectOf("Radwa").value).toBe("__default");
-  });
-
-  it("filters the list as you type", () => {
-    $("#search").value = "fam";
-    fire($("#search"), "input");
-    expect($$("#chatList li")).toHaveLength(1);
-    $("#search").value = "zzz";
-    fire($("#search"), "input");
-    expect(text("#chatsEmpty")).toMatch(/Nothing matches/);
   });
 
   it("shows names as plain text, never as HTML", async () => {
@@ -182,6 +251,7 @@ describe("your chats: one dropdown per chat", () => {
     await mount({
       initial: { recentSenders: [{ name: evil, kind: "chat", chatId: "1@lid", lastSeen: 1 }] },
     });
+    search("img");
     expect($("#chatList img")).toBeNull();
     expect(text("#chatList .name")).toBe(evil);
   });
@@ -198,14 +268,12 @@ describe("every chat from WhatsApp's own chat list", () => {
     })
   );
 
-  it("lists them all, one row per name, after the chats that messaged you", () => {
-    expect($$("#chatList .name").map((n) => n.textContent)).toEqual([
-      "Radwa",
-      "Family",
-      "Mom",
-      "Work",
-    ]);
-    expect(rowOf("Mom").textContent).toContain("Chat or group");
+  it("finds them all by searching, one row per name, recent activity first", () => {
+    search("m");
+    expect(shownNames()).toEqual(["Family", "Mom"]);
+    expect(findRow("Mom").textContent).toContain("Chat or group");
+    search("radwa");
+    expect(shownNames()).toEqual(["Radwa"]); // the list entry and the chat that messaged are one row
   });
 
   it("gives one of them a sound in a single change, as a name-based rule", async () => {
@@ -217,7 +285,7 @@ describe("every chat from WhatsApp's own chat list", () => {
       chatId: null,
       soundId: "id1",
     });
-    await vi.waitFor(() => expect(rowOf("Mom").classList.contains("is-set")).toBe(true));
+    await vi.waitFor(() => expect(findRow("Mom").classList.contains("is-set")).toBe(true));
   });
 
   it("reads the list from the WhatsApp tab when you press Refresh", async () => {
@@ -226,8 +294,8 @@ describe("every chat from WhatsApp's own chat list", () => {
       return { ok: true, count: 4 };
     });
     $("#refreshChats").click();
-    await vi.waitFor(() => expect(rowOf("Brand New Chat")).toBeTruthy());
-    expect(text("#message")).toBe("Found 4 chats.");
+    await vi.waitFor(() => expect(text("#message")).toBe("Found 4 chats."));
+    expect(rowOf("Brand New Chat")).toBeTruthy();
     expect(tabs.sendMessage).toHaveBeenCalledWith(5, { type: "wansc:scan-chats" });
   });
 
@@ -260,14 +328,13 @@ describe("people inside groups (advanced) and the last-resort box", () => {
     expect($("#people").hidden).toBe(true);
   });
 
-  it("keeps people out of the main list but lets you give one a sound", async () => {
+  it("keeps people out of the chat list but lets you search for one and give a sound", async () => {
     await mount({
-      initial: {
-        recentSenders: [{ name: "Bob", kind: "sender", lastSeen: 5 }, ...recentSenders],
-      },
+      initial: { recentSenders: [{ name: "Bob", kind: "sender", lastSeen: 5 }, ...recentSenders] },
       setup: twoSounds,
     });
-    expect($$("#chatList .name").map((n) => n.textContent)).not.toContain("Bob");
+    search("bob");
+    expect(shownNames()).toEqual([]);
     expect($("#people").hidden).toBe(false);
 
     const select = $$("#peopleList li")
@@ -301,15 +368,15 @@ describe("chats that have a rule but have not messaged yet", () => {
     })
   );
 
-  it("are listed after the seen chats and show their sound", () => {
-    expect($$("#chatList .name").map((n) => n.textContent)).toEqual(["Radwa", "Family", "Amy"]);
+  it("are listed right away, showing their sound", () => {
+    expect(shownNames()).toEqual(["Amy"]);
     expect(selectOf("Amy").value).toBe("id2");
     expect(rowOf("Amy").classList.contains("is-set")).toBe(true);
   });
 
   it("drop off the list when set back to the default sound", async () => {
     choose("Amy", "__default");
-    await vi.waitFor(() => expect(rowOf("Amy")).toBeUndefined());
+    await vi.waitFor(() => expect(findRow("Amy")).toBeUndefined());
   });
 });
 
@@ -333,7 +400,7 @@ describe("uploading a new sound straight from a chat's dropdown", () => {
     expect(meow).toBeTruthy();
     expect(state.rules[0]).toMatchObject({ match: "Radwa", chatId: "601@lid", soundId: meow.id });
     expect(text("#message")).toBe('Added "meow.mp3" for Radwa.');
-    await vi.waitFor(() => expect(selectOf("Radwa").value).toBe(meow.id));
+    await vi.waitFor(() => expect(findRow("Radwa").querySelector("select").value).toBe(meow.id));
     expect($$("#soundList li")).toHaveLength(3);
   });
 
@@ -341,7 +408,9 @@ describe("uploading a new sound straight from a chat's dropdown", () => {
     choose("Radwa", "__upload");
     pickFile(); // nothing chosen
     fire($("#assignFile"), "cancel");
-    await vi.waitFor(() => expect(selectOf("Radwa").value).toBe("__default"));
+    await vi.waitFor(() =>
+      expect(findRow("Radwa").querySelector("select").value).toBe("__default")
+    );
     expect(Object.keys((await store.load()).sounds)).toHaveLength(2);
   });
 
@@ -351,15 +420,15 @@ describe("uploading a new sound straight from a chat's dropdown", () => {
     fire($("#assignFile"), "change");
     await vi.waitFor(() => expect(text("#message")).toMatch(/isn't supported/));
     expect($("#message").className).toContain("toast-error");
-    expect(selectOf("Radwa").value).toBe("__default");
+    expect(findRow("Radwa").querySelector("select").value).toBe("__default");
     expect((await store.load()).rules).toEqual([]);
   });
 });
 
-describe("adding a chat by name", () => {
+describe("adding a chat by name (last resort)", () => {
   beforeEach(() => mount({ initial: { recentSenders }, setup: twoSounds }));
 
-  it("adds a chat that has not messaged you yet", async () => {
+  it("adds a chat that is not in the list", async () => {
     $("#ruleName").value = "  Mom ";
     $("#ruleSound").value = "id1";
     submitAddByName();
@@ -379,8 +448,9 @@ describe("adding a chat by name", () => {
     submitAddByName();
     await vi.waitFor(async () => expect((await store.load()).rules).toHaveLength(1));
     expect((await store.load()).rules[0].chatId).toBe("601@lid");
-    expect($$("#chatList .name").map((n) => n.textContent)).toEqual(["Radwa", "Family"]);
-    expect(rowOf("Radwa").classList.contains("is-set")).toBe(true);
+    search("radwa");
+    expect(shownNames()).toEqual(["Radwa"]);
+    expect(findRow("Radwa").classList.contains("is-set")).toBe(true);
   });
 
   it("explains a duplicate and an empty name", async () => {
@@ -479,8 +549,11 @@ describe("sounds", () => {
       },
     });
     expect(selectOf("Radwa").value).toBe("id1");
+    search(""); // back to the default view: only chats that have a sound
     $(".delete-sound").click();
     await vi.waitFor(() => expect($$("#soundList li")).toHaveLength(0));
+    expect(findRow("Radwa")).toBeUndefined(); // no sound of its own any more, so not listed
+    search("radwa");
     expect(selectOf("Radwa").value).toBe("__default");
     expect(text("#message")).toMatch(/Deleted/);
   });
@@ -513,27 +586,37 @@ describe("new chats while the page is open", () => {
 
   const newChatArrives = () => {
     storage.data.recentSenders = [
-      { name: "Newcomer", kind: "chat", chatId: "7@lid", lastSeen: 9 },
+      { name: "Rad Newcomer", kind: "chat", chatId: "7@lid", lastSeen: 9 },
       ...recentSenders,
     ];
     changeListeners.forEach((fn) => fn({ recentSenders: {} }, "local"));
   };
 
-  it("adds them to the list without reloading", async () => {
+  it("shows them in the search results without reloading", async () => {
+    search("rad");
+    expect(shownNames()).toEqual(["Radwa"]);
     newChatArrives();
-    await vi.waitFor(() => expect(rowOf("Newcomer")).toBeTruthy());
-    expect($$("#chatList .name")[0].textContent).toBe("Newcomer");
+    await vi.waitFor(() => expect(shownNames()).toEqual(["Rad Newcomer", "Radwa"]));
   });
 
   it("waits until you leave a dropdown, so an open menu is never yanked away", async () => {
-    const select = selectOf("Radwa");
+    search("rad");
+    const select = findRow("Radwa").querySelector("select");
     select.focus();
     newChatArrives();
     await new Promise((r) => setTimeout(r, 20));
-    expect(rowOf("Newcomer")).toBeUndefined();
+    expect(shownNames()).toEqual(["Radwa"]); // untouched while the dropdown has focus
 
     fire(select, "focusout");
-    await vi.waitFor(() => expect(rowOf("Newcomer")).toBeTruthy());
+    await vi.waitFor(() => expect(shownNames()).toEqual(["Rad Newcomer", "Radwa"]));
+  });
+
+  it("also reacts to chat names read from WhatsApp's list", async () => {
+    search("zed");
+    expect(shownNames()).toEqual([]);
+    storage.data.knownChats = [{ name: "Zed" }];
+    changeListeners.forEach((fn) => fn({ knownChats: {} }, "local"));
+    await vi.waitFor(() => expect(shownNames()).toEqual(["Zed"]));
   });
 
   it("ignores storage changes that are not about chats", () => {
