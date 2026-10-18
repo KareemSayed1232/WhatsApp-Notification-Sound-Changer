@@ -382,13 +382,14 @@ export async function mountOptions({
     const uploadButton = el(
       "button",
       {
-        class: "icon-btn upload-for-chat",
+        class: "btn btn-secondary btn-small upload-for-chat",
         type: "button",
         title: `${S.uploadFor} ${row.name}`,
         "aria-label": `${S.uploadFor} ${row.name}`,
         onClick: () => fileInput.click(),
       },
-      icon(document, "upload")
+      icon(document, "upload", 15),
+      S.uploadButton
     );
     return el(
       "li",
@@ -519,6 +520,7 @@ export async function mountOptions({
     const file = input.files?.[0];
     const row = findRow(key);
     if (!file || !row) return;
+    say(`${S.uploading} "${file.name}"…`); // proof the file arrived, before anything can fail
     const outcome = await run(async () => {
       const sound = await stateStore.addSound(file);
       await applyChoice(stateStore, row, sound.id);

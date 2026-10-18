@@ -22,9 +22,12 @@ const POPUP_LIMIT = 8;
  * The toolbar popup: your chats, each with one dropdown to pick its sound, including uploading a
  * new sound inline.
  */
-export async function mountPopup({ document, stateStore, chrome }) {
+export async function mountPopup({ document, stateStore, chrome, useUploadWindow }) {
   const el = (tag, props, ...kids) => h(document, tag, props, ...kids);
   const win = document.defaultView;
+  // Chrome, Edge and other Chromium browsers keep a popup open while a file picker is showing.
+  // Firefox (and Safari) close it, losing the chosen file, so they upload in a small window.
+  const useWindow = useUploadWindow ?? !/Chrome\//.test(win.navigator?.userAgent ?? "");
   const percent = (value) => `${Math.round(Number(value) * 100)}%`;
 
   let state = await stateStore.load();
@@ -213,13 +216,16 @@ export async function mountPopup({ document, stateStore, chrome }) {
     const uploadButton = el(
       "button",
       {
-        class: "icon-btn upload-for-chat",
+        class: "btn btn-secondary btn-small upload-for-chat",
         type: "button",
         title: `${S.uploadFor} ${row.name}`,
         "aria-label": `${S.uploadFor} ${row.name}`,
-        onClick: () => fileInput.click(),
+        // Where the browser would close the popup as soon as a file picker opens, upload in a
+        // small window instead; elsewhere the picker opens right here.
+        onClick: () => (useWindow ? openUploadWindow(row.key) : fileInput.click()),
       },
-      icon(document, "upload")
+      icon(document, "upload", 15),
+      S.uploadButton
     );
     return el(
       "li",
@@ -323,6 +329,7 @@ export async function mountPopup({ document, stateStore, chrome }) {
     const file = input.files?.[0];
     const row = buildChatRows(state).find((r) => r.key === key);
     if (!file || !row) return;
+    say(`${S.uploading} "${file.name}"…`); // proof the file arrived, before anything can fail
     await save(async () => {
       const sound = await stateStore.addSound(file);
       await applyChoice(stateStore, row, sound.id);
@@ -350,6 +357,16 @@ export async function mountPopup({ document, stateStore, chrome }) {
     say(outcome.text, outcome.kind);
     state = await stateStore.load();
     renderChats();
+  }
+
+  function openUploadWindow(key) {
+    chrome.windows.create({
+      url: chrome.runtime.getURL(`ui/upload.html?chat=${encodeURIComponent(key)}`),
+      type: "popup",
+      width: 480,
+      height: 380,
+    });
+    win.close?.();
   }
 
   function openSettings() {

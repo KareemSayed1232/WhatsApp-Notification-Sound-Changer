@@ -14,6 +14,7 @@ const ENTRIES = {
   "content/bridge.js": "content/bridge.entry.mjs",
   "ui/popup.js": "ui/popup.entry.mjs",
   "ui/options.js": "ui/options.entry.mjs",
+  "ui/upload.js": "ui/upload.entry.mjs",
 };
 
 // Copied as-is.
@@ -21,6 +22,8 @@ const STATIC_FILES = [
   "icons",
   "ui/popup.html",
   "ui/options.html",
+  "ui/upload.html",
+  "ui/upload.css",
   "ui/ui.css",
   "ui/popup.css",
   "ui/options.css",

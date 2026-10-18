@@ -27,7 +27,10 @@ const fakeSound = (name) => ({
   arrayBuffer: async () => new Uint8Array(3).buffer,
 });
 
-async function mount({ initial = {}, setup } = {}) {
+// `useUploadWindow` is false unless a test says otherwise; pass `undefined` explicitly to exercise
+// the real browser detection.
+async function mount({ initial = {}, setup, ...options } = {}) {
+  const useUploadWindow = "useUploadWindow" in options ? options.useUploadWindow : false;
   storage = createFakeStorage(initial);
   let counter = 0;
   store = createStateStore({
@@ -44,10 +47,14 @@ async function mount({ initial = {}, setup } = {}) {
       query: vi.fn(async () => [{ id: 5, active: true }]),
       sendMessage: vi.fn(async () => ({ ok: true, count: 0 })),
     },
-    runtime: { openOptionsPage: vi.fn() },
+    windows: { create: vi.fn(async () => ({})) },
+    runtime: {
+      openOptionsPage: vi.fn(),
+      getURL: (path) => `chrome-extension://ext/${path}`,
+    },
     storage: { onChanged: { addListener: (fn) => changeListeners.push(fn) } },
   };
-  await mountPopup({ document, stateStore: store, chrome });
+  await mountPopup({ document, stateStore: store, chrome, useUploadWindow });
 }
 
 const twoSounds = async (s) => {
@@ -156,10 +163,26 @@ describe("the chat list: only chats with a sound, search finds the rest", () => 
       fire(fileInputOf(name), "change");
     };
 
-    it("gives the chat its own clearly labelled upload button", () => {
+    it("gives the chat a clearly worded Upload button, not a bare icon", () => {
+      expect(uploadButtonOf("Radwa").textContent).toContain("Upload");
       expect(uploadButtonOf("Radwa").getAttribute("aria-label")).toBe(
-        "Upload a new sound for Radwa"
+        "Upload your own sound for Radwa"
       );
+    });
+
+    it("says 'Uploading…' the moment a file arrives, before anything can fail", async () => {
+      let release;
+      const gate = new Promise((resolve) => (release = resolve));
+      chooseFile("Radwa", {
+        ...fakeSound("slow.mp3"),
+        arrayBuffer: async () => {
+          await gate;
+          return new Uint8Array(3).buffer;
+        },
+      });
+      await vi.waitFor(() => expect($("#message").textContent).toBe('Uploading "slow.mp3"…'));
+      release();
+      await vi.waitFor(() => expect($("#message").textContent).toMatch(/^Added "slow.mp3"/));
     });
 
     it("opens the file picker from the button's click, right here, not the settings page", () => {
@@ -237,6 +260,59 @@ describe("the chat list: only chats with a sound, search finds the rest", () => 
     expect(shownNames()).toEqual(["Radwa"]);
     fire(select, "focusout");
     await vi.waitFor(() => expect(shownNames()).toEqual(["Rad Late", "Radwa"]));
+  });
+});
+
+describe("browsers that close a popup when a file picker opens (Firefox, Safari)", () => {
+  beforeEach(() => mount({ initial: { recentSenders }, setup: twoSounds, useUploadWindow: true }));
+
+  it("opens a small upload window for that chat instead of a file picker", () => {
+    const fileInput = rowOf("Radwa").querySelector(".row-file");
+    fileInput.click = vi.fn();
+    rowOf("Radwa").querySelector(".upload-for-chat").click();
+
+    expect(fileInput.click).not.toHaveBeenCalled();
+    expect(chrome.windows.create).toHaveBeenCalledWith({
+      url: "chrome-extension://ext/ui/upload.html?chat=chat%7Cradwa",
+      type: "popup",
+      width: 480,
+      height: 380,
+    });
+  });
+
+  it("still labels the button in words", () => {
+    expect(rowOf("Radwa").querySelector(".upload-for-chat").textContent).toContain("Upload");
+  });
+});
+
+describe("choosing between inline upload and the window", () => {
+  const withUserAgent = async (userAgent) => {
+    vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue(userAgent);
+    await mount({ initial: { recentSenders }, setup: twoSounds, useUploadWindow: undefined });
+    rowOf("Radwa").querySelector(".row-file").click = vi.fn();
+    rowOf("Radwa").querySelector(".upload-for-chat").click();
+  };
+
+  it("uses the inline picker in Chrome and Edge", async () => {
+    await withUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36 Edg/155.0.0.0"
+    );
+    expect(chrome.windows.create).not.toHaveBeenCalled();
+    expect(rowOf("Radwa").querySelector(".row-file").click).toHaveBeenCalled();
+  });
+
+  it("uses the upload window in Firefox", async () => {
+    await withUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
+    );
+    expect(chrome.windows.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the upload window in Safari", async () => {
+    await withUserAgent(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+    );
+    expect(chrome.windows.create).toHaveBeenCalledTimes(1);
   });
 });
 

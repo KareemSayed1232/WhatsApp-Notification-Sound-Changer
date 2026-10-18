@@ -217,6 +217,12 @@ input[type="range"] {
 .btn-secondary:hover {
   border-color: var(--muted);
 }
+.btn-small {
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
 .btn-block {
   width: 100%;
 }

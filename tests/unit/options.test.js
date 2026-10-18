@@ -385,11 +385,29 @@ describe("uploading a new sound for one chat, with the button on its row", () =>
     fire(fileInputOf(name), "change");
   };
 
-  it("gives every chat its own clearly labelled upload button", () => {
-    expect(uploadButtonOf("Radwa").getAttribute("aria-label")).toBe("Upload a new sound for Radwa");
-    expect(uploadButtonOf("Family").getAttribute("aria-label")).toBe(
-      "Upload a new sound for Family"
+  it("gives every chat a clearly worded Upload button, not a bare icon", () => {
+    expect(uploadButtonOf("Radwa").textContent).toContain("Upload");
+    expect(uploadButtonOf("Radwa").getAttribute("aria-label")).toBe(
+      "Upload your own sound for Radwa"
     );
+    expect(uploadButtonOf("Family").getAttribute("aria-label")).toBe(
+      "Upload your own sound for Family"
+    );
+  });
+
+  it("says 'Uploading…' the moment a file arrives, before anything can fail", async () => {
+    let release;
+    const gate = new Promise((resolve) => (release = resolve));
+    chooseFile("Radwa", {
+      ...fakeFile("slow.mp3"),
+      arrayBuffer: async () => {
+        await gate;
+        return new Uint8Array(3).buffer;
+      },
+    });
+    await vi.waitFor(() => expect(text("#message")).toBe('Uploading "slow.mp3"…'));
+    release();
+    await vi.waitFor(() => expect(text("#message")).toMatch(/^Added "slow.mp3"/));
   });
 
   it("opens the file picker from the button's click (the only way Firefox allows)", () => {

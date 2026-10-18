@@ -13,6 +13,7 @@ const BUNDLES = [
   "content/bridge.js",
   "ui/popup.js",
   "ui/options.js",
+  "ui/upload.js",
 ];
 const TARGETS = ["chromium", "firefox", "safari"];
 
@@ -92,7 +93,7 @@ describe.each(TARGETS)("%s build", (target) => {
       expect(code, `${file} must not use innerHTML`).not.toMatch(/\.innerHTML\s*=/);
       expect(code, `${file} must not call eval`).not.toMatch(/\beval\s*\(/);
     }
-    for (const page of ["ui/popup.html", "ui/options.html"]) {
+    for (const page of ["ui/popup.html", "ui/options.html", "ui/upload.html"]) {
       const html = readFileSync(path.join(out, page), "utf8");
       expect(html, `${page} must not load remote resources`).not.toMatch(/(src|href)="https?:/);
     }
