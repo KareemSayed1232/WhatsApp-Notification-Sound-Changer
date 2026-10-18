@@ -4,6 +4,7 @@ import {
   CHOICE_SILENT,
   CHOICE_UPLOAD,
   buildChatRows,
+  buildPeopleRows,
   buildSoundRows,
   choiceToAction,
   defaultSoundHint,
@@ -24,6 +25,7 @@ const state = (over = {}) => ({
   sounds,
   rules: [],
   recentSenders: [],
+  knownChats: [],
   ...over,
 });
 
@@ -136,26 +138,51 @@ describe("ruleFor", () => {
   });
 });
 
-describe("buildChatRows", () => {
+describe("buildChatRows: one row per chat name", () => {
   const recentSenders = [
     { name: "Radwa", kind: "chat", chatId: "601@lid", lastSeen: 3 },
     { name: "Family", kind: "chat", chatId: "120@g.us", lastSeen: 2 },
     { name: "Bob", kind: "sender", lastSeen: 1 },
   ];
 
-  it("lists every chat we have seen, newest first, with the default choice when it has no rule", () => {
+  it("lists chats that messaged us, newest first, and keeps people inside groups out of it", () => {
     const rows = buildChatRows(state({ recentSenders }));
-    expect(rows.map((r) => r.name)).toEqual(["Radwa", "Family", "Bob"]);
+    expect(rows.map((r) => r.name)).toEqual(["Radwa", "Family"]);
     expect(rows[0]).toMatchObject({
-      key: "chat|601@lid",
-      chatId: "601@lid",
+      key: "chat|radwa",
+      kind: "chat",
       hasRule: false,
-      ruleId: null,
       choice: CHOICE_DEFAULT,
       kindLabel: "Chat",
+      targets: [{ chatId: "601@lid", ruleId: null }],
     });
     expect(rows[1].kindLabel).toBe("Group");
-    expect(rows[2]).toMatchObject({ key: "sender|bob", kind: "sender", chatId: null });
+  });
+
+  it("includes every chat read from WhatsApp's own chat list, after the ones that messaged us", () => {
+    const rows = buildChatRows(
+      state({ recentSenders, knownChats: [{ name: "Mom" }, { name: "radwa" }, { name: "Work" }] })
+    );
+    expect(rows.map((r) => r.name)).toEqual(["Radwa", "Family", "Mom", "Work"]);
+    expect(rows[2]).toMatchObject({
+      kindLabel: "Chat or group",
+      targets: [{ chatId: null, ruleId: null }],
+    });
+  });
+
+  it("merges every identity of one contact into a single row", () => {
+    const rows = buildChatRows(
+      state({
+        recentSenders: [
+          { name: "Mohanad", kind: "chat", chatId: "111@lid", lastSeen: 3 },
+          { name: "mohanad", kind: "chat", chatId: "222@c.us", lastSeen: 2 },
+          { name: "Mohanad", kind: "sender", lastSeen: 1 },
+        ],
+        knownChats: [{ name: "Mohanad" }],
+      })
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].targets.map((t) => t.chatId)).toEqual(["111@lid", "222@c.us"]);
   });
 
   it("shows the sound a chat already has", () => {
@@ -164,29 +191,40 @@ describe("buildChatRows", () => {
       { id: "r2", kind: "chat", match: "Family", chatId: "120@g.us", action: "silent" },
     ];
     const rows = buildChatRows(state({ recentSenders, rules }));
-    expect(rows[0]).toMatchObject({ hasRule: true, ruleId: "r1", choice: "b" });
-    expect(rows[1]).toMatchObject({ hasRule: true, ruleId: "r2", choice: CHOICE_SILENT });
-    expect(rows[2].hasRule).toBe(false);
+    expect(rows[0]).toMatchObject({
+      hasRule: true,
+      choice: "b",
+      linked: true,
+      targets: [{ chatId: "601@lid", ruleId: "r1" }],
+    });
+    expect(rows[1]).toMatchObject({ hasRule: true, choice: CHOICE_SILENT });
   });
 
-  it("uses the chat's latest seen name when it was renamed", () => {
+  it("uses the chat's latest seen name when it was renamed, and keeps its rule", () => {
     const rules = [
       { id: "r1", kind: "chat", match: "Old name", chatId: "601@lid", action: "silent" },
     ];
     const rows = buildChatRows(state({ recentSenders: [recentSenders[0]], rules }));
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ name: "Radwa", ruleId: "r1" });
+    expect(rows[0]).toMatchObject({ name: "Radwa", hasRule: true });
+    expect(rows[0].targets).toEqual([{ chatId: "601@lid", ruleId: "r1" }]);
   });
 
-  it("appends rules for chats not seen yet, alphabetically, without duplicating covered ones", () => {
+  it("attaches a name-only rule to the chat list row with the same name", () => {
+    const rules = [{ id: "r1", kind: "chat", match: "MOM", action: "silent" }];
+    const rows = buildChatRows(state({ knownChats: [{ name: "Mom" }], rules }));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ name: "Mom", hasRule: true, choice: CHOICE_SILENT });
+    expect(rows[0].targets).toEqual([{ chatId: null, ruleId: "r1" }]);
+  });
+
+  it("appends rules for chats we have never seen, alphabetically", () => {
     const rules = [
-      { id: "r1", kind: "chat", match: "Radwa", chatId: "601@lid", action: "silent" },
-      { id: "r2", kind: "chat", match: "Zed", action: "silent" },
-      { id: "r3", kind: "chat", match: "Amy", action: "silent" },
+      { id: "r1", kind: "chat", match: "Zed", action: "silent" },
+      { id: "r2", kind: "chat", match: "Amy", action: "silent" },
     ];
     const rows = buildChatRows(state({ recentSenders, rules }));
-    expect(rows.map((r) => r.name)).toEqual(["Radwa", "Family", "Bob", "Amy", "Zed"]);
-    expect(rows.find((r) => r.name === "Amy")).toMatchObject({ hasRule: true, lastSeen: 0 });
+    expect(rows.map((r) => r.name)).toEqual(["Radwa", "Family", "Amy", "Zed"]);
   });
 
   it("filters by name, ignoring case and invisible marks", () => {
@@ -196,7 +234,41 @@ describe("buildChatRows", () => {
     expect(buildChatRows(state({ recentSenders }), "zzz")).toEqual([]);
   });
 
-  it("is empty when nothing has been seen and there are no rules", () => {
+  it("copes with a state that has no knownChats yet, and with no data at all", () => {
+    const old = state({ recentSenders });
+    delete old.knownChats;
+    expect(buildChatRows(old)).toHaveLength(2);
     expect(buildChatRows(state())).toEqual([]);
+  });
+});
+
+describe("buildPeopleRows: people inside groups (advanced)", () => {
+  it("lists people seen in groups, then rules for people not seen", () => {
+    const rows = buildPeopleRows(
+      state({
+        recentSenders: [
+          { name: "Bob", kind: "sender", lastSeen: 2 },
+          { name: "Radwa", kind: "chat", chatId: "601@lid", lastSeen: 3 },
+        ],
+        rules: [
+          { id: "r1", kind: "sender", match: "bob", action: "silent" },
+          { id: "r2", kind: "sender", match: "Amy", action: "silent" },
+          { id: "r3", kind: "chat", match: "Radwa", chatId: "601@lid", action: "silent" },
+        ],
+      })
+    );
+    expect(rows.map((r) => r.name)).toEqual(["Bob", "Amy"]);
+    expect(rows[0]).toMatchObject({
+      key: "sender|bob",
+      kind: "sender",
+      kindLabel: "Person in a group",
+      hasRule: true,
+      choice: CHOICE_SILENT,
+      targets: [{ chatId: null, ruleId: "r1" }],
+    });
+  });
+
+  it("is empty when nobody has been seen in a group", () => {
+    expect(buildPeopleRows(state())).toEqual([]);
   });
 });

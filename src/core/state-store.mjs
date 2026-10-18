@@ -1,6 +1,7 @@
 import { parseDataUrl } from "./audio-data.mjs";
-import { normalizeName } from "./normalize.mjs";
+import { cleanDisplayName, normalizeName } from "./normalize.mjs";
 import {
+  MAX_KNOWN_CHATS,
   MAX_RECENT_SENDERS,
   RULE_KINDS,
   SCHEMA_VERSION,
@@ -11,7 +12,7 @@ import {
   validateSoundFile,
 } from "./schema.mjs";
 
-const KEYS = ["schemaVersion", "settings", "sounds", "rules", "recentSenders"];
+const KEYS = ["schemaVersion", "settings", "sounds", "rules", "recentSenders", "knownChats"];
 const LEGACY_KEY = "uploadedAudio";
 const LEGACY_SOUND_ID = "legacy-default";
 
@@ -37,6 +38,11 @@ function sanitize(raw) {
     rules: Array.isArray(raw.rules) ? raw.rules.filter(isObject) : [],
     recentSenders: Array.isArray(raw.recentSenders)
       ? raw.recentSenders.filter((s) => isObject(s) && typeof s.name === "string")
+      : [],
+    // Names read from WhatsApp's own chat list (no ids), so every chat can be offered, not only
+    // the ones that have messaged you.
+    knownChats: Array.isArray(raw.knownChats)
+      ? raw.knownChats.filter((c) => isObject(c) && typeof c.name === "string")
       : [],
   };
 }
@@ -243,6 +249,29 @@ export function createStateStore({
         if (kind === "chat" && typeof chatId === "string" && chatId) entry.chatId = chatId;
         const others = state.recentSenders.filter((s) => senderKey(s) !== senderKey(entry));
         await storage.set({ recentSenders: [entry, ...others].slice(0, MAX_RECENT_SENDERS) });
+      }),
+
+    /**
+     * Remember chat names read from WhatsApp's chat list. Newly reported names go first (WhatsApp
+     * lists most recent chats first); names already known keep their place after them.
+     */
+    recordChats: (names) =>
+      mutate(async (state) => {
+        const seen = new Set();
+        const fresh = [];
+        for (const raw of Array.isArray(names) ? names : []) {
+          const name = cleanDisplayName(raw);
+          const key = normalizeName(name);
+          if (!name || name.length > 100 || seen.has(key)) continue;
+          seen.add(key);
+          fresh.push({ name });
+        }
+        if (fresh.length === 0) return;
+        const rest = state.knownChats.filter((chat) => !seen.has(normalizeName(chat.name)));
+        const knownChats = [...fresh, ...rest].slice(0, MAX_KNOWN_CHATS);
+        if (JSON.stringify(knownChats) !== JSON.stringify(state.knownChats)) {
+          await storage.set({ knownChats });
+        }
       }),
   };
 }

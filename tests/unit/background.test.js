@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { startBackground } from "../../src/background/background.mjs";
-import { MSG_GET_SOUND, MSG_SEEN } from "../../src/core/protocol.mjs";
+import { MSG_CHATS, MSG_GET_SOUND, MSG_SEEN } from "../../src/core/protocol.mjs";
 
 const whatsappSender = { id: "ext", url: "https://web.whatsapp.com/", tab: { id: 1 } };
 const extensionPage = { id: "ext", url: "chrome-extension://ext/options.html" };
@@ -27,6 +27,7 @@ beforeEach(() => {
   stateStore = {
     load: vi.fn(async () => ({})),
     recordSender: vi.fn(async () => {}),
+    recordChats: vi.fn(async () => {}),
   };
   soundStore = {
     get: vi.fn(async (id) =>
@@ -141,6 +142,26 @@ describe("sender trust", () => {
       { id: "ext", tab: { url: "https://web.whatsapp.com/" } }
     );
     expect(response.ok).toBe(true);
+  });
+});
+
+describe("chat names from WhatsApp's chat list", () => {
+  it("records the names a content script reports", async () => {
+    await send({ type: MSG_CHATS, names: ["Radwa", "Family"] });
+    expect(stateStore.recordChats).toHaveBeenCalledWith(["Radwa", "Family"]);
+  });
+
+  it("caps how many names one message may carry", async () => {
+    await send({ type: MSG_CHATS, names: Array.from({ length: 1000 }, (_, i) => `c${i}`) });
+    expect(stateStore.recordChats.mock.calls[0][0]).toHaveLength(200);
+  });
+
+  it("ignores untrusted senders and malformed payloads, and swallows write errors", async () => {
+    await send({ type: MSG_CHATS, names: ["A"] }, { id: "evil", url: "https://web.whatsapp.com/" });
+    await send({ type: MSG_CHATS, names: "nope" });
+    expect(stateStore.recordChats).not.toHaveBeenCalled();
+    stateStore.recordChats.mockRejectedValue(new Error("quota"));
+    await expect(send({ type: MSG_CHATS, names: ["A"] })).resolves.toBeUndefined();
   });
 });
 

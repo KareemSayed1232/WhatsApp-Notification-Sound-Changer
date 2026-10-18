@@ -1,5 +1,6 @@
 import { createAudioEngine } from "./audio-engine.mjs";
 import { createSoundLoader, startBridge } from "./bridge.mjs";
+import { startChatWatcher } from "./chat-watcher.mjs";
 
 // Content script (isolated world) entry point; bundled to content/bridge.js.
 const chrome = globalThis.chrome;
@@ -23,3 +24,9 @@ function log(...args) {
 
 engine.armUnlock(document);
 startBridge({ chrome, document, engine, log });
+try {
+  startChatWatcher({ chrome, document });
+} catch (error) {
+  // Reading the chat list is a convenience; it must never get in the way of the sounds.
+  log("chat list watcher failed to start:", error.message);
+}

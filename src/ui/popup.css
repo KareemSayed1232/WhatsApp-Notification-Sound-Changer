@@ -35,6 +35,17 @@
 .block h2 {
   margin: 0;
 }
+.block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.btn-small {
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+}
 
 .sound-block {
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);

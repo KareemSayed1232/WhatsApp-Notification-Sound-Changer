@@ -1,9 +1,10 @@
 import { bytesToDataUrl } from "../core/audio-data.mjs";
-import { MSG_GET_SOUND, MSG_SEEN } from "../core/protocol.mjs";
+import { MSG_CHATS, MSG_GET_SOUND, MSG_SEEN } from "../core/protocol.mjs";
 
 const WHATSAPP_ORIGIN = "https://web.whatsapp.com/";
 const WHATSAPP_TABS = "https://web.whatsapp.com/*";
 const MAX_SEEN_ITEMS = 4;
+const MAX_CHAT_NAMES_PER_MESSAGE = 200;
 
 /**
  * The only place that touches IndexedDB and migrations. Content scripts ask it for sound bytes
@@ -34,6 +35,11 @@ export function startBackground({ chrome, stateStore, soundStore }) {
         () => sendResponse({ ok: false })
       );
       return true; // Keep the channel open for the async response.
+    }
+
+    if (message.type === MSG_CHATS && Array.isArray(message.names)) {
+      stateStore.recordChats(message.names.slice(0, MAX_CHAT_NAMES_PER_MESSAGE)).catch(() => {});
+      return false;
     }
 
     if (message.type === MSG_SEEN && Array.isArray(message.items)) {

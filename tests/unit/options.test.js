@@ -32,7 +32,15 @@ let player;
 let confirmFn;
 
 /** `setup(store)` runs before the page loads, to seed sounds/rules through the real store. */
+let tabs;
+
 async function mount({ initial = {}, setup } = {}) {
+  tabs = {
+    query: vi.fn(async () => [{ id: 5, active: true }]),
+    sendMessage: vi.fn(async () => ({ ok: true, count: 0 })),
+    update: vi.fn(async () => {}),
+    getCurrent: vi.fn(async () => ({ id: 9 })),
+  };
   storage = createFakeStorage(initial);
   soundStore = createFakeSoundStore();
   counter = 0;
@@ -52,7 +60,7 @@ async function mount({ initial = {}, setup } = {}) {
     document,
     stateStore: store,
     soundStore,
-    chrome: { storage: { onChanged: { addListener: (fn) => changeListeners.push(fn) } } },
+    chrome: { tabs, storage: { onChanged: { addListener: (fn) => changeListeners.push(fn) } } },
     createPlayer: () => player,
     confirmFn,
   });
@@ -176,6 +184,109 @@ describe("your chats: one dropdown per chat", () => {
     });
     expect($("#chatList img")).toBeNull();
     expect(text("#chatList .name")).toBe(evil);
+  });
+});
+
+describe("every chat from WhatsApp's own chat list", () => {
+  beforeEach(() =>
+    mount({
+      initial: {
+        recentSenders,
+        knownChats: [{ name: "Mom" }, { name: "Work" }, { name: "radwa" }],
+      },
+      setup: twoSounds,
+    })
+  );
+
+  it("lists them all, one row per name, after the chats that messaged you", () => {
+    expect($$("#chatList .name").map((n) => n.textContent)).toEqual([
+      "Radwa",
+      "Family",
+      "Mom",
+      "Work",
+    ]);
+    expect(rowOf("Mom").textContent).toContain("Chat or group");
+  });
+
+  it("gives one of them a sound in a single change, as a name-based rule", async () => {
+    choose("Mom", "id1");
+    await vi.waitFor(async () => expect((await store.load()).rules).toHaveLength(1));
+    expect((await store.load()).rules[0]).toMatchObject({
+      kind: "chat",
+      match: "Mom",
+      chatId: null,
+      soundId: "id1",
+    });
+    await vi.waitFor(() => expect(rowOf("Mom").classList.contains("is-set")).toBe(true));
+  });
+
+  it("reads the list from the WhatsApp tab when you press Refresh", async () => {
+    tabs.sendMessage.mockImplementation(async () => {
+      storage.data.knownChats = [{ name: "Brand New Chat" }, ...storage.data.knownChats];
+      return { ok: true, count: 4 };
+    });
+    $("#refreshChats").click();
+    await vi.waitFor(() => expect(rowOf("Brand New Chat")).toBeTruthy());
+    expect(text("#message")).toBe("Found 4 chats.");
+    expect(tabs.sendMessage).toHaveBeenCalledWith(5, { type: "wansc:scan-chats" });
+  });
+
+  it("brings a background WhatsApp tab forward for the scan and returns afterwards", async () => {
+    tabs.query.mockResolvedValue([{ id: 5, active: false }]);
+    $("#refreshChats").click();
+    await vi.waitFor(() => expect(tabs.update).toHaveBeenCalledTimes(2));
+    expect(tabs.update).toHaveBeenNthCalledWith(1, 5, { active: true });
+    expect(tabs.update).toHaveBeenNthCalledWith(2, 9, { active: true });
+  });
+
+  it("tells you what to do when WhatsApp Web is not open", async () => {
+    tabs.query.mockResolvedValue([]);
+    $("#refreshChats").click();
+    await vi.waitFor(() => expect(text("#message")).toMatch(/Open WhatsApp Web/));
+    expect($("#message").className).toContain("toast-error");
+    expect($("#refreshChats").disabled).toBe(false);
+  });
+
+  it("explains when the page's chat list could not be read", async () => {
+    tabs.sendMessage.mockResolvedValue({ ok: false, reason: "no-chat-list", count: 0 });
+    $("#refreshChats").click();
+    await vi.waitFor(() => expect(text("#message")).toMatch(/Couldn't read the chat list/));
+  });
+});
+
+describe("people inside groups (advanced) and the last-resort box", () => {
+  it("hides the people section until someone has been seen in a group", async () => {
+    await mount({ initial: { recentSenders }, setup: twoSounds });
+    expect($("#people").hidden).toBe(true);
+  });
+
+  it("keeps people out of the main list but lets you give one a sound", async () => {
+    await mount({
+      initial: {
+        recentSenders: [{ name: "Bob", kind: "sender", lastSeen: 5 }, ...recentSenders],
+      },
+      setup: twoSounds,
+    });
+    expect($$("#chatList .name").map((n) => n.textContent)).not.toContain("Bob");
+    expect($("#people").hidden).toBe(false);
+
+    const select = $$("#peopleList li")
+      .find((li) => li.textContent.includes("Bob"))
+      .querySelector("select");
+    select.value = "id1";
+    fire(select, "change");
+    await vi.waitFor(async () =>
+      expect((await store.load()).rules[0]).toMatchObject({
+        kind: "sender",
+        match: "Bob",
+        soundId: "id1",
+      })
+    );
+  });
+
+  it("describes adding by name as the last resort and says the name must match", () => {
+    expect(text("#addByName summary")).toMatch(/Last resort/);
+    expect(text("#addByName .hint")).toMatch(/must match WhatsApp exactly/);
   });
 });
 

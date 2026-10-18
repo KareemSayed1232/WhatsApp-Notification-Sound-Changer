@@ -110,6 +110,7 @@ async function openTab({ stored = {}, realPermission = "denied" } = {}) {
     },
     runtime: {
       id: "ext",
+      onMessage: { addListener() {}, removeListener() {} },
       sendMessage: async (message) => {
         if (message.type === "wansc:get-sound") {
           soundRequests.push(message.soundId);

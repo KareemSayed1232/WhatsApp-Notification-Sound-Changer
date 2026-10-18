@@ -40,6 +40,10 @@ async function mount({ initial = {}, setup } = {}) {
   document.body.innerHTML = '<div id="app"></div>';
   changeListeners = [];
   chrome = {
+    tabs: {
+      query: vi.fn(async () => [{ id: 5, active: true }]),
+      sendMessage: vi.fn(async () => ({ ok: true, count: 0 })),
+    },
     runtime: { openOptionsPage: vi.fn() },
     storage: { onChanged: { addListener: (fn) => changeListeners.push(fn) } },
   };
@@ -144,6 +148,45 @@ describe("the chat list", () => {
     expect(rowOf("Late")).toBeUndefined();
     fire(select, "focusout");
     await vi.waitFor(() => expect(rowOf("Late")).toBeTruthy());
+  });
+});
+
+describe("loading every chat from WhatsApp", () => {
+  it("shows chats read from WhatsApp's chat list, one row per name", async () => {
+    await mount({
+      initial: { recentSenders, knownChats: [{ name: "Mom" }, { name: "radwa" }] },
+      setup: twoSounds,
+    });
+    expect($$("#chatList .name").map((n) => n.textContent)).toEqual(["Radwa", "Family", "Mom"]);
+  });
+
+  it("reads the chat list from the WhatsApp tab when you press Refresh", async () => {
+    chrome.tabs.sendMessage.mockImplementation(async () => {
+      storage.data.knownChats = [{ name: "Fresh Chat" }];
+      return { ok: true, count: 1 };
+    });
+    $("#refreshChats").click();
+    await vi.waitFor(() => expect(rowOf("Fresh Chat")).toBeTruthy());
+    expect($("#message").textContent).toBe("Found 1 chat.");
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(5, { type: "wansc:scan-chats" });
+  });
+
+  it("explains when WhatsApp Web is not open", async () => {
+    chrome.tabs.query.mockResolvedValue([]);
+    $("#refreshChats").click();
+    await vi.waitFor(() => expect($("#message").textContent).toMatch(/Open WhatsApp Web/));
+  });
+
+  it("describes adding by name as the last resort", () => {
+    expect($(".add-by-name summary").textContent).toMatch(/Last resort/);
+  });
+
+  it("keeps people inside groups out of the popup's list", async () => {
+    await mount({
+      initial: { recentSenders: [{ name: "Bob", kind: "sender", lastSeen: 5 }, ...recentSenders] },
+      setup: twoSounds,
+    });
+    expect($$("#chatList .name").map((n) => n.textContent)).toEqual(["Radwa", "Family"]);
   });
 });
 

@@ -1,4 +1,9 @@
-import { addChatByName, applyChoice } from "./chat-actions.mjs";
+import {
+  addChatByName,
+  applyChoice,
+  describeScan,
+  refreshChatsFromWhatsApp,
+} from "./chat-actions.mjs";
 import { fillSelect, h } from "./dom.mjs";
 import { icon } from "./icons.mjs";
 import { STRINGS as S, errorMessage } from "./strings.mjs";
@@ -6,6 +11,7 @@ import {
   CHOICE_DEFAULT,
   CHOICE_UPLOAD,
   buildChatRows,
+  buildPeopleRows,
   buildSoundRows,
   defaultSoundHint,
   soundChoices,
@@ -113,6 +119,24 @@ export async function mountOptions({
   });
   const chatList = el("ul", { id: "chatList", class: "chat-list", onFocusout: onChatsFocusOut });
   const chatsEmpty = el("p", { class: "empty", id: "chatsEmpty" });
+  const refreshButton = el(
+    "button",
+    { id: "refreshChats", class: "btn btn-secondary", type: "button", onClick: onRefresh },
+    icon(document, "refresh"),
+    S.refreshChats
+  );
+  const peopleList = el("ul", {
+    id: "peopleList",
+    class: "chat-list",
+    onFocusout: onChatsFocusOut,
+  });
+  const people = el(
+    "details",
+    { id: "people", class: "add-by-name", hidden: true },
+    el("summary", {}, S.peopleTitle),
+    el("p", { class: "hint" }, S.peopleHint),
+    peopleList
+  );
   const assignFile = el("input", {
     id: "assignFile",
     type: "file",
@@ -193,14 +217,16 @@ export async function mountOptions({
         { class: "card", "aria-labelledby": "h-chats" },
         el("h2", { id: "h-chats" }, S.chatsTitle),
         el("p", { class: "hint" }, S.chatsHint),
-        el("div", { class: "toolbar" }, search),
+        el("div", { class: "toolbar" }, search, refreshButton),
         chatList,
         chatsEmpty,
         assignFile,
+        people,
         el(
           "details",
           { class: "add-by-name", id: "addByName" },
           el("summary", {}, S.addByName),
+          el("p", { class: "hint" }, S.addByNameHint),
           addForm
         )
       ),
@@ -379,8 +405,12 @@ export async function mountOptions({
     const rows = buildChatRows(state, filter);
     chatList.replaceChildren(...rows.map(chatRow));
     chatsEmpty.hidden = rows.length > 0;
-    chatsEmpty.textContent =
-      state.recentSenders.length + state.rules.length === 0 ? S.chatsEmpty : S.rulesNoMatch;
+    const anything = state.recentSenders.length + state.rules.length + state.knownChats.length;
+    chatsEmpty.textContent = anything === 0 ? S.chatsEmpty : S.rulesNoMatch;
+
+    const peopleRows = buildPeopleRows(state, filter);
+    peopleList.replaceChildren(...peopleRows.map(chatRow));
+    people.hidden = peopleRows.length === 0;
   }
 
   function renderAll() {
@@ -417,7 +447,18 @@ export async function mountOptions({
     }
   }
 
-  const findRow = (key) => buildChatRows(state).find((row) => row.key === key);
+  const findRow = (key) =>
+    [...buildChatRows(state), ...buildPeopleRows(state)].find((row) => row.key === key);
+
+  async function onRefresh() {
+    say(S.scanning);
+    refreshButton.disabled = true;
+    const result = await refreshChatsFromWhatsApp(chrome, { bringToFront: true });
+    refreshButton.disabled = false;
+    const outcome = describeScan(result);
+    say(outcome.text, outcome.kind);
+    await refresh();
+  }
 
   function onEnabled() {
     run(() => stateStore.setSettings({ enabled: enabled.input.checked }));
@@ -530,7 +571,7 @@ export async function mountOptions({
   }
 
   chrome?.storage?.onChanged?.addListener((changes, area) => {
-    if (area !== "local" || !changes.recentSenders) return;
+    if (area !== "local" || !(changes.recentSenders || changes.knownChats)) return;
     stateStore.load().then((next) => {
       state = next;
       if (chatList.contains(document.activeElement)) chatsStale = true;

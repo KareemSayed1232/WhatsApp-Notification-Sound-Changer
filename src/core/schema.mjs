@@ -4,6 +4,7 @@ export const SCHEMA_VERSION = 2;
 export const MAX_SOUND_BYTES = 2 * 1024 * 1024;
 export const MAX_MATCH_LENGTH = 200;
 export const MAX_RECENT_SENDERS = 50;
+export const MAX_KNOWN_CHATS = 500;
 
 export const RULE_KINDS = ["chat", "sender"];
 export const RULE_ACTIONS = ["sound", "silent", "default"];

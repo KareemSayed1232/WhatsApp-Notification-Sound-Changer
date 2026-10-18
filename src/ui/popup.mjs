@@ -1,4 +1,9 @@
-import { addChatByName, applyChoice } from "./chat-actions.mjs";
+import {
+  addChatByName,
+  applyChoice,
+  describeScan,
+  refreshChatsFromWhatsApp,
+} from "./chat-actions.mjs";
 import { fillSelect, h } from "./dom.mjs";
 import { icon } from "./icons.mjs";
 import { STRINGS as S, errorMessage } from "./strings.mjs";
@@ -64,6 +69,18 @@ export async function mountPopup({ document, stateStore, chrome }) {
 
   const chatList = el("ul", { id: "chatList", class: "chat-list", onFocusout: onChatsFocusOut });
   const chatsEmpty = el("p", { class: "empty", id: "chatsEmpty" }, S.chatsEmpty);
+  const refreshButton = el(
+    "button",
+    {
+      id: "refreshChats",
+      class: "btn btn-secondary btn-small",
+      type: "button",
+      title: S.refreshChats,
+      onClick: onRefresh,
+    },
+    icon(document, "refresh", 15),
+    "Refresh"
+  );
 
   const quickName = el("input", {
     id: "quickName",
@@ -123,8 +140,20 @@ export async function mountPopup({ document, stateStore, chrome }) {
       ),
       defaultHint
     ),
-    el("section", { class: "block" }, el("h2", {}, S.chatsTitle), chatList, chatsEmpty),
-    el("details", { class: "add-by-name" }, el("summary", {}, S.addByName), quickAdd),
+    el(
+      "section",
+      { class: "block" },
+      el("div", { class: "block-head" }, el("h2", {}, S.chatsTitle), refreshButton),
+      chatList,
+      chatsEmpty
+    ),
+    el(
+      "details",
+      { class: "add-by-name" },
+      el("summary", {}, S.addByName),
+      el("p", { class: "hint" }, S.addByNameHint),
+      quickAdd
+    ),
     el(
       "button",
       {
@@ -255,6 +284,17 @@ export async function mountPopup({ document, stateStore, chrome }) {
     if (ok) quickName.value = "";
   }
 
+  async function onRefresh() {
+    say(S.scanning);
+    refreshButton.disabled = true;
+    const result = await refreshChatsFromWhatsApp(chrome);
+    refreshButton.disabled = false;
+    const outcome = describeScan(result);
+    say(outcome.text, outcome.kind);
+    state = await stateStore.load();
+    renderChats();
+  }
+
   function openSettings() {
     chrome.runtime.openOptionsPage();
     win.close?.();
@@ -269,7 +309,7 @@ export async function mountPopup({ document, stateStore, chrome }) {
   }
 
   chrome?.storage?.onChanged?.addListener((changes, area) => {
-    if (area !== "local" || !changes.recentSenders) return;
+    if (area !== "local" || !(changes.recentSenders || changes.knownChats)) return;
     stateStore.load().then((next) => {
       state = next;
       if (chatList.contains(document.activeElement)) chatsStale = true;

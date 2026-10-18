@@ -44,10 +44,19 @@ export const STRINGS = {
   defaultBadge: "Default",
 
   chatsTitle: "Your chats",
-  chatsHint:
-    "Pick a sound for each chat. Chats appear here after they message you while WhatsApp Web is open.",
-  chatsEmpty: "No chats yet. Ask a friend to message you, or add one by name below.",
-  addByName: "Not in the list? Add a chat by name",
+  chatsHint: "Pick a sound for each chat. Don't see one? Press Refresh while WhatsApp Web is open.",
+  chatsEmpty: "No chats yet. Open WhatsApp Web, then press Refresh to load your chats.",
+  refreshChats: "Refresh chats",
+  scanning: "Reading your WhatsApp chat list…",
+  scanNoTab: "Open WhatsApp Web in a tab first, then try again.",
+  scanNotReady: "Reload the WhatsApp tab once, then try again.",
+  scanNoList:
+    "Couldn't read the chat list on the page (WhatsApp may have changed). Use the last-resort box below for now.",
+  scanFailed: "Couldn't read your chats. Reload the WhatsApp tab and try again.",
+  addByName: "Last resort: add a chat by name",
+  addByNameHint: "Only if a chat is missing from the list. The name must match WhatsApp exactly.",
+  peopleTitle: "People inside groups (advanced)",
+  peopleHint: "Give one person their own sound in every group they write in.",
   choiceUpload: "＋ Upload new sound…",
 
   choiceDefault: "Default sound",

@@ -47,6 +47,7 @@ describe("load / defaults", () => {
       sounds: {},
       rules: [],
       recentSenders: [],
+      knownChats: [],
     });
     expect(storage.data.schemaVersion).toBe(2);
   });
@@ -307,6 +308,46 @@ describe("settings", () => {
 
   it("rejects a default sound that does not exist", async () => {
     expect(await codeOf(store.setSettings({ defaultSoundId: "nope" }))).toBe("unknown-sound");
+  });
+});
+
+describe("chat names read from WhatsApp's chat list", () => {
+  it("stores cleaned, de-duplicated names in the order given", async () => {
+    await store.recordChats([" Radwa ", "Family‎", "radwa", "", "   ", "Mom"]);
+    expect((await store.load()).knownChats).toEqual([
+      { name: "Radwa" },
+      { name: "Family" },
+      { name: "Mom" },
+    ]);
+  });
+
+  it("puts newly reported names first and keeps the rest after them", async () => {
+    await store.recordChats(["A", "B"]);
+    await store.recordChats(["C", "A"]);
+    expect((await store.load()).knownChats.map((c) => c.name)).toEqual(["C", "A", "B"]);
+  });
+
+  it("does not write when nothing changed", async () => {
+    await store.recordChats(["A", "B"]);
+    const writes = storage.calls.set;
+    await store.recordChats(["A", "B"]);
+    await store.recordChats([]);
+    await store.recordChats("nonsense");
+    expect(storage.calls.set).toBe(writes);
+  });
+
+  it("caps the list and skips absurdly long names", async () => {
+    await store.recordChats(Array.from({ length: 600 }, (_, i) => `chat ${i}`));
+    const { knownChats } = await store.load();
+    expect(knownChats).toHaveLength(500);
+    expect(knownChats[0].name).toBe("chat 0");
+    await store.recordChats(["x".repeat(101)]);
+    expect((await store.load()).knownChats).toHaveLength(500);
+  });
+
+  it("ignores malformed stored entries", async () => {
+    makeStore({ schemaVersion: 2, knownChats: [{ name: "Ok" }, 5, { nope: true }, null] });
+    expect((await store.load()).knownChats).toEqual([{ name: "Ok" }]);
   });
 });
 

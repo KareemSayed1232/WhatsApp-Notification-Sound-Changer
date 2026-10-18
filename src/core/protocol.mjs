@@ -12,6 +12,10 @@ export const EVENT_REPLACE = "wansc:replace";
 // chrome.runtime messages from the bridge to the background worker.
 export const MSG_GET_SOUND = "wansc:get-sound";
 export const MSG_SEEN = "wansc:seen";
+// Names read from WhatsApp's chat list, sent by the content script to the background worker.
+export const MSG_CHATS = "wansc:chats";
+// Extension page -> content script in the WhatsApp tab: scroll through the chat list and report it.
+export const MSG_SCAN = "wansc:scan-chats";
 
 // WhatsApp plays its message sound ~2-26 ms after raising the notification (measured, Oct 2026).
 // The window is deliberately generous so a slow machine still pairs them.

@@ -35,10 +35,13 @@ main {
 
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
   margin: 0 0 12px;
 }
 .toolbar .input {
+  flex: 1 1 200px;
   max-width: 320px;
 }
 
