@@ -40,6 +40,7 @@ export function startBridge({
   document,
   engine,
   CustomEventCtor = document.defaultView.CustomEvent,
+  log = () => {},
 }) {
   let state = null;
 
@@ -83,16 +84,18 @@ export function startBridge({
           body: text(question.body),
         };
         reportSeen(notification);
-        return {
-          mode: "managed",
-          decision: decidePlayback({ notification, rules, sounds, settings }),
-          showPopup: settings.showPopups,
-        };
+        const decision = decidePlayback({ notification, rules, sounds, settings });
+        log("decision for chat", notification.tag || notification.title, "->", decision);
+        return { mode: "managed", decision, showPopup: settings.showPopups };
       }
 
       case "default-sound":
         if (!settings.enabled) return { decision: { action: "native" } };
-        return { decision: decidePlayback({ notification: {}, rules, sounds, settings }) };
+        {
+          const decision = decidePlayback({ notification: {}, rules, sounds, settings });
+          log("sound with no notification (tab focused?) ->", decision);
+          return { decision };
+        }
 
       default:
         return null;
@@ -122,7 +125,9 @@ export function startBridge({
     if (isOrphaned()) return stop();
     const request = parse(event.detail);
     if (!request || typeof request.soundId !== "string") return;
-    engine.play(request.soundId, request.volume);
+    Promise.resolve(engine.play(request.soundId, request.volume)).then((started) =>
+      log("playback of", request.soundId, started ? "started" : "FAILED (see [WANSC] error above)")
+    );
   }
 
   function onStorageChanged(changes, area) {

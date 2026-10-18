@@ -290,6 +290,60 @@ describe("live updates", () => {
   });
 });
 
+describe("debug logging", () => {
+  async function bootWithLog() {
+    const log = vi.fn();
+    doc = freshDocument();
+    chrome = makeChrome();
+    engine = { play: vi.fn(async () => true), invalidate: vi.fn() };
+    const instance = startBridge({
+      chrome,
+      document: doc,
+      engine,
+      CustomEventCtor: CustomEvent,
+      log,
+    });
+    await instance.ready;
+    return log;
+  }
+
+  it("reports the decision for a notification, without the message text", async () => {
+    const log = await bootWithLog();
+    ask(notify({ body: "very private text" }));
+    expect(log).toHaveBeenCalledWith(
+      "decision for chat",
+      "601@lid",
+      "->",
+      expect.objectContaining({ action: "play", soundId: "s2" })
+    );
+    expect(JSON.stringify(log.mock.calls)).not.toContain("private");
+  });
+
+  it("reports the default-sound path used when no notification came first", async () => {
+    const log = await bootWithLog();
+    ask({ kind: "default-sound" });
+    expect(log).toHaveBeenCalledWith(
+      "sound with no notification (tab focused?) ->",
+      expect.objectContaining({ action: "play", soundId: "s1" })
+    );
+  });
+
+  it("reports whether playback started or failed", async () => {
+    const log = await bootWithLog();
+    const play = (soundId) =>
+      doc.dispatchEvent(new CustomEvent(EVENT_PLAY, { detail: JSON.stringify({ soundId }) }));
+
+    play("s1");
+    await vi.waitFor(() => expect(log).toHaveBeenCalledWith("playback of", "s1", "started"));
+
+    engine.play.mockResolvedValueOnce(false);
+    play("s2");
+    await vi.waitFor(() =>
+      expect(log).toHaveBeenCalledWith("playback of", "s2", expect.stringContaining("FAILED"))
+    );
+  });
+});
+
 describe("createSoundLoader", () => {
   it("returns the decoded bytes for a stored sound", async () => {
     const loader = createSoundLoader({

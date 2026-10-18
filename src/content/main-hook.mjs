@@ -31,6 +31,15 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
   const originalPlay = mediaProto ? mediaProto.play : null;
   let pending = null;
 
+  /** Opt-in tracing: run `localStorage.wanscDebug = "1"` in the page console, then reload. */
+  function debug(...args) {
+    try {
+      if (window.localStorage?.getItem("wanscDebug")) window.console.debug("[WANSC]", ...args);
+    } catch {
+      // Storage or console unavailable: tracing is best-effort.
+    }
+  }
+
   function dispatch(name, payload) {
     document.dispatchEvent(new window.CustomEvent(name, { detail: JSON.stringify(payload) }));
   }
@@ -113,6 +122,7 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
       body: typeof options?.body === "string" ? options.body : "",
     });
 
+    debug("notification", { title: String(title ?? ""), tag: options?.tag }, "->", answer);
     if (answer?.mode !== "managed") {
       pending = null;
       return new OriginalNotification(title, options);
@@ -156,6 +166,12 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
       const url = this.currentSrc || this.src || "";
       if (isWhatsAppSound(url)) {
         const decision = takeDecision(url);
+        debug(
+          "WhatsApp sound",
+          url.split("/").pop(),
+          "->",
+          decision ?? "left alone (unrecognised)"
+        );
         if (decision && decision.action !== "native") {
           if (decision.action === "play") {
             dispatch(EVENT_PLAY, { soundId: decision.soundId, volume: decision.volume });

@@ -11,5 +11,15 @@ const engine = createAudioEngine({
   onError: (error) => globalThis.console.debug("[WANSC]", error.message),
 });
 
+/** Opt-in tracing: run `localStorage.wanscDebug = "1"` in the page console, then reload. */
+function log(...args) {
+  try {
+    if (globalThis.localStorage?.getItem("wanscDebug"))
+      globalThis.console.debug("[WANSC]", ...args);
+  } catch {
+    // Best-effort only.
+  }
+}
+
 engine.armUnlock(document);
-startBridge({ chrome, document, engine });
+startBridge({ chrome, document, engine, log });

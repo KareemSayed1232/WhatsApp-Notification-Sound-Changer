@@ -33,6 +33,8 @@ export const STRINGS = {
   soundsHint: "Upload the sounds you want to use. They stay on this device.",
   defaultSound: "Default sound",
   defaultSoundHint: "Used for every chat that has no sound of its own.",
+  defaultHintOff:
+    "No default sound: chats without their own sound will use WhatsApp's normal sound.",
   noDefault: "None (keep WhatsApp's own sound)",
   volume: "Volume",
   addSound: "Add a sound",

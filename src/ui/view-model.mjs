@@ -43,6 +43,12 @@ export function soundChoices(sounds) {
   ];
 }
 
+/** What the default-sound dropdown means right now, so "None" is never a mystery. */
+export function defaultSoundHint(state) {
+  const id = state.settings.defaultSoundId;
+  return id && state.sounds[id] ? S.defaultSoundHint : S.defaultHintOff;
+}
+
 export function buildSoundRows(state) {
   return Object.values(state.sounds)
     .sort(byCreated)

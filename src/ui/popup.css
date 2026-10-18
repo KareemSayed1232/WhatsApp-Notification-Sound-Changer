@@ -41,6 +41,10 @@
   gap: 12px;
   align-items: end;
 }
+.sound-block .hint {
+  grid-column: 1 / -1;
+  margin-top: -4px;
+}
 
 /* One row per chat: name, sound dropdown, and (for your own rules) a delete button. */
 .chat-list {

@@ -7,6 +7,7 @@ import {
   buildRuleRows,
   buildSoundRows,
   choiceToAction,
+  defaultSoundHint,
   recentChoices,
   soundChoices,
 } from "./view-model.mjs";
@@ -22,6 +23,7 @@ export async function mountPopup({ document, stateStore, chrome }) {
   const el = (tag, props, ...kids) => h(document, tag, props, ...kids);
   const win = document.defaultView;
   const percent = (value) => `${Math.round(Number(value) * 100)}%`;
+  const defaultHint = el("p", { class: "hint", id: "defaultHint" });
 
   let state = await stateStore.load();
   let toastTimer = null;
@@ -127,7 +129,8 @@ export async function mountPopup({ document, stateStore, chrome }) {
         { class: "field" },
         el("label", { for: "volume" }, S.volume),
         el("div", { class: "range-row" }, volume, volumeOut)
-      )
+      ),
+      defaultHint
     ),
     el("section", { class: "block" }, el("h2", {}, S.popupChatsTitle), rulesList, rulesEmpty),
     el(
@@ -251,6 +254,7 @@ export async function mountPopup({ document, stateStore, chrome }) {
       state.settings.defaultSoundId ?? ""
     );
     defaultSound.disabled = sounds.length === 0;
+    defaultHint.textContent = defaultSoundHint(state);
     fillSelect(
       document,
       quickSound,

@@ -79,6 +79,13 @@ describe("configuring chats from the popup", () => {
     await vi.waitFor(async () => expect((await store.load()).settings.defaultSoundId).toBe("id2"));
   });
 
+  it("explains what no default sound means, and updates when one is picked", async () => {
+    expect($("#defaultHint").textContent).toMatch(/WhatsApp's normal sound/);
+    $("#defaultSound").value = "id1";
+    fire($("#defaultSound"), "change");
+    await vi.waitFor(() => expect($("#defaultHint").textContent).toMatch(/no sound of its own/));
+  });
+
   it("starts with an empty chat list", () => {
     expect($("#rulesEmpty").hidden).toBe(false);
     expect($$("#rulesList li")).toHaveLength(0);

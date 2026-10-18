@@ -78,6 +78,10 @@ describe("first run", () => {
     expect($("#showPopups").checked).toBe(false);
   });
 
+  it("explains that no default sound leaves WhatsApp's normal sound in place", () => {
+    expect(text("#defaultHint")).toMatch(/WhatsApp's normal sound/);
+  });
+
   it("labels every control so it is usable with a screen reader", () => {
     for (const id of ["recent", "ruleKind", "ruleName", "ruleSound", "defaultSound", "volume"]) {
       expect(document.querySelector(`label[for="${id}"]`), `label for #${id}`).not.toBeNull();

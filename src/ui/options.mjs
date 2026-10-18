@@ -6,6 +6,7 @@ import {
   buildRuleRows,
   buildSoundRows,
   choiceToAction,
+  defaultSoundHint,
   recentChoices,
   soundChoices,
 } from "./view-model.mjs";
@@ -165,6 +166,7 @@ export async function mountOptions({
   const soundsEmpty = el("p", { class: "empty", id: "soundsEmpty" }, S.soundsEmpty);
 
   const percent = (value) => `${Math.round(Number(value) * 100)}%`;
+  const defaultHint = el("p", { class: "hint", id: "defaultHint" });
 
   const page = el(
     "div",
@@ -229,7 +231,7 @@ export async function mountOptions({
             el("div", { class: "range-row" }, volume, volumeOut)
           )
         ),
-        el("p", { class: "hint" }, S.defaultSoundHint),
+        defaultHint,
         el(
           "div",
           { class: "toolbar" },
@@ -286,6 +288,7 @@ export async function mountOptions({
       state.settings.defaultSoundId ?? ""
     );
     defaultSound.disabled = sounds.length === 0;
+    defaultHint.textContent = defaultSoundHint(state);
   }
 
   function renderSoundPicker() {

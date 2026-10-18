@@ -5,6 +5,7 @@ import {
   buildRuleRows,
   buildSoundRows,
   choiceToAction,
+  defaultSoundHint,
   formatBytes,
   kindLabel,
   recentChoices,
@@ -64,6 +65,23 @@ describe("choices", () => {
       "a",
       "b",
     ]);
+  });
+});
+
+describe("defaultSoundHint", () => {
+  it("explains what 'no default' means, so it is never a mystery", () => {
+    expect(defaultSoundHint(state({ settings: { defaultSoundId: null } }))).toMatch(
+      /WhatsApp's normal sound/
+    );
+    expect(defaultSoundHint(state({ settings: { defaultSoundId: "gone" } }))).toMatch(
+      /WhatsApp's normal sound/
+    );
+  });
+
+  it("says who uses the default when one is set", () => {
+    expect(defaultSoundHint(state({ settings: { defaultSoundId: "a" } }))).toMatch(
+      /no sound of its own/
+    );
   });
 });
 

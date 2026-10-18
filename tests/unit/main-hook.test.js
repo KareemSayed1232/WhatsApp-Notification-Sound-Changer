@@ -234,6 +234,58 @@ describe("sound replacement", () => {
   });
 });
 
+describe("opt-in debug tracing", () => {
+  const play = () => new win.HTMLMediaElement(INCOMING).play();
+
+  it("logs nothing by default", async () => {
+    win.console = { debug: vi.fn() };
+    win.localStorage = { getItem: () => null };
+    connectBridge(() => managed({ action: "native" }));
+    new win.Notification("Radwa", { tag: "601@lid" });
+    await play();
+    expect(win.console.debug).not.toHaveBeenCalled();
+  });
+
+  it("traces the notification and what happened to WhatsApp's sound once wanscDebug is set", async () => {
+    win.console = { debug: vi.fn() };
+    win.localStorage = { getItem: (key) => (key === "wanscDebug" ? "1" : null) };
+    connectBridge(() => managed({ action: "play", soundId: "s1", volume: 1 }));
+
+    new win.Notification("Radwa", { tag: "601@lid", body: "private message text" });
+    await play();
+
+    const lines = win.console.debug.mock.calls.map((call) => call.map(String).join(" "));
+    expect(lines.some((l) => l.includes("[WANSC]") && l.includes("notification"))).toBe(true);
+    expect(lines.some((l) => l.includes("WhatsApp sound") && l.includes("BS_BUUXbKq5.mp3"))).toBe(
+      true
+    );
+    expect(JSON.stringify(win.console.debug.mock.calls)).not.toContain("private message text");
+  });
+
+  it("says when it leaves an unrecognised WhatsApp sound alone", async () => {
+    win.console = { debug: vi.fn() };
+    win.localStorage = { getItem: () => "1" };
+    await new win.HTMLMediaElement("https://static.whatsapp.net/rsrc.php/x/other.mp3").play();
+    expect(JSON.stringify(win.console.debug.mock.calls)).toContain("left alone");
+  });
+
+  it("never breaks the page if localStorage or console throw", async () => {
+    win.console = {
+      debug: () => {
+        throw new Error("console blocked");
+      },
+    };
+    win.localStorage = {
+      getItem: () => {
+        throw new Error("storage blocked");
+      },
+    };
+    connectBridge(() => managed({ action: "native" }));
+    expect(() => new win.Notification("Radwa")).not.toThrow();
+    await expect(play()).resolves.toBeDefined();
+  });
+});
+
 describe("being injected twice", () => {
   it("does not wrap Notification or play() a second time", async () => {
     connectBridge(() => managed({ action: "play", soundId: "s1", volume: 1 }));
