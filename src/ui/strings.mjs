@@ -62,7 +62,7 @@ export const STRINGS = {
   peopleTitle: "People inside groups (advanced)",
   peopleHint: "Give one person their own sound in every group they write in.",
   uploadFor: "Upload your own sound for",
-  uploadButton: "Upload",
+  uploadButton: "Upload sound",
   uploading: "Uploading",
   uploadTitle: "Upload a sound",
   uploadForLabel: "For the chat:",
