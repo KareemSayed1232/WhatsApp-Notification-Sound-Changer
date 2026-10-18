@@ -46,35 +46,11 @@
   margin-top: -4px;
 }
 
-/* One row per chat: name, sound dropdown, and (for your own rules) a delete button. */
-.chat-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 8px;
-}
-.chat-list li {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 160px);
-  align-items: center;
-  gap: 10px;
+/* A narrower dropdown column than the settings page. */
+.popup .chat-list li {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 170px);
   padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-.chat-list li.has-delete {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 150px) auto;
-}
-.chat-name {
-  display: grid;
-  min-width: 0;
-}
-.chat-name .name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  gap: 10px;
 }
 
 .quick-add {
@@ -84,6 +60,9 @@
 }
 .quick-add .input {
   grid-column: 1 / -1; /* the name gets its own full-width row */
+}
+.popup details.add-by-name {
+  margin-top: 0;
 }
 .popup .empty {
   padding: 6px 2px;

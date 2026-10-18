@@ -43,6 +43,13 @@ export const STRINGS = {
   setDefault: "Make default",
   defaultBadge: "Default",
 
+  chatsTitle: "Your chats",
+  chatsHint:
+    "Pick a sound for each chat. Chats appear here after they message you while WhatsApp Web is open.",
+  chatsEmpty: "No chats yet. Ask a friend to message you, or add one by name below.",
+  addByName: "Not in the list? Add a chat by name",
+  choiceUpload: "＋ Upload new sound…",
+
   choiceDefault: "Default sound",
   choiceSilent: "Silent (no sound)",
   chooseSound: "Choose a sound…",

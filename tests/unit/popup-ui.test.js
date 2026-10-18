@@ -20,6 +20,13 @@ const recentSenders = [
   { name: "Family", kind: "chat", chatId: "120@g.us", lastSeen: 2 },
 ];
 
+const fakeSound = (name) => ({
+  name,
+  type: "audio/mpeg",
+  size: 3,
+  arrayBuffer: async () => new Uint8Array(3).buffer,
+});
+
 async function mount({ initial = {}, setup } = {}) {
   storage = createFakeStorage(initial);
   let counter = 0;
@@ -39,154 +46,119 @@ async function mount({ initial = {}, setup } = {}) {
   await mountPopup({ document, stateStore: store, chrome });
 }
 
-const withSound = (s) =>
-  s.addSound({
-    name: "Ping.mp3",
-    type: "audio/mpeg",
-    size: 3,
-    arrayBuffer: async () => new Uint8Array(3).buffer,
-  });
-
-beforeEach(() => {
-  vi.spyOn(window, "close").mockImplementation(() => {});
-  return mount({ initial: { recentSenders }, setup: withSound });
-});
-
-const withTwoSounds = async (s) => {
-  await withSound(s);
-  await s.addSound({
-    name: "Chime.mp3",
-    type: "audio/mpeg",
-    size: 3,
-    arrayBuffer: async () => new Uint8Array(3).buffer,
-  });
+const twoSounds = async (s) => {
+  await s.addSound(fakeSound("Ping.mp3")); // id1
+  await s.addSound(fakeSound("Chime.mp3")); // id2
 };
 
+const rowOf = (name) =>
+  $$("#chatList li").find((li) => li.querySelector(".name").textContent === name);
+const selectOf = (name) => rowOf(name).querySelector("select");
+const choose = (name, value) => {
+  const select = selectOf(name);
+  select.value = value;
+  fire(select, "change");
+};
 const submitQuickAdd = () =>
   $("#quickAdd").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 
-describe("configuring chats from the popup", () => {
-  beforeEach(() => mount({ initial: { recentSenders }, setup: withTwoSounds }));
+beforeEach(() => {
+  vi.spyOn(window, "close").mockImplementation(() => {});
+  return mount({ initial: { recentSenders }, setup: twoSounds });
+});
 
-  it("shows the default sound and lets you change it", async () => {
-    expect($$("#defaultSound option").map((o) => o.textContent)).toEqual([
-      "None (keep WhatsApp's own sound)",
-      "Chime.mp3", // same upload time, so alphabetical
+describe("the chat list", () => {
+  it("shows the chats that messaged you, each with its own sound dropdown", () => {
+    expect($$("#chatList .name").map((n) => n.textContent)).toEqual(["Radwa", "Family"]);
+    expect(rowOf("Family").textContent).toContain("Group");
+    expect([...selectOf("Radwa").options].map((o) => o.textContent)).toEqual([
+      "Default sound",
+      "Silent (no sound)",
+      "Chime.mp3",
       "Ping.mp3",
+      "＋ Upload new sound…",
     ]);
-    $("#defaultSound").value = "id2";
-    fire($("#defaultSound"), "change");
-    await vi.waitFor(async () => expect((await store.load()).settings.defaultSoundId).toBe("id2"));
+    expect($("#chatsEmpty").hidden).toBe(true);
   });
 
-  it("explains what no default sound means, and updates when one is picked", async () => {
-    expect($("#defaultHint").textContent).toMatch(/WhatsApp's normal sound/);
-    $("#defaultSound").value = "id1";
-    fire($("#defaultSound"), "change");
-    await vi.waitFor(() => expect($("#defaultHint").textContent).toMatch(/no sound of its own/));
-  });
-
-  it("starts with an empty chat list", () => {
-    expect($("#rulesEmpty").hidden).toBe(false);
-    expect($$("#rulesList li")).toHaveLength(0);
-  });
-
-  it("adds a chat by typing its name and choosing a sound", async () => {
-    $("#quickName").value = "  Mom ";
-    $("#quickSound").value = "id2";
-    submitQuickAdd();
-    await vi.waitFor(() => expect($$("#rulesList li")).toHaveLength(1));
-
+  it("sets a chat's sound with one change, bound to its chat id", async () => {
+    choose("Radwa", "id1");
+    await vi.waitFor(async () => expect((await store.load()).rules).toHaveLength(1));
     expect((await store.load()).rules[0]).toMatchObject({
-      kind: "chat",
-      match: "Mom",
-      chatId: null,
-      action: "sound",
-      soundId: "id2",
-    });
-    expect($("#quickName").value).toBe("");
-    expect($("#rulesList .name").textContent).toBe("Mom");
-    expect($("#message").textContent).toMatch(/Added "Mom"/);
-    expect($("#rulesEmpty").hidden).toBe(true);
-  });
-
-  it("binds the rule to the chat id when the typed name matches a recent chat", async () => {
-    $("#quickName").value = "radwa"; // any capitalisation
-    $("#quickSound").value = "__silent";
-    submitQuickAdd();
-    await vi.waitFor(() => expect($$("#rulesList li")).toHaveLength(1));
-    expect((await store.load()).rules[0]).toMatchObject({
-      match: "radwa",
+      match: "Radwa",
       chatId: "601@lid",
-      action: "silent",
+      action: "sound",
+      soundId: "id1",
     });
+    await vi.waitFor(() => expect(rowOf("Radwa").classList.contains("is-set")).toBe(true));
+    expect(selectOf("Radwa").value).toBe("id1");
   });
 
-  it("offers the recent chats as suggestions while typing", () => {
-    expect($$("#quickRecents option").map((o) => o.value)).toEqual(["Radwa", "Family"]);
+  it("can silence a chat, and return it to the default", async () => {
+    choose("Family", "__silent");
+    await vi.waitFor(async () =>
+      expect((await store.load()).rules[0]).toMatchObject({ action: "silent" })
+    );
+    choose("Family", "__default");
+    await vi.waitFor(async () => expect((await store.load()).rules).toEqual([]));
+    expect(rowOf("Family")).toBeTruthy();
   });
 
-  it("explains a duplicate and keeps what you typed", async () => {
-    await store.addRule({ kind: "chat", match: "Mom", action: "silent" });
-    $("#quickName").value = "mom";
-    submitQuickAdd();
-    await vi.waitFor(() => expect($("#message").textContent).toMatch(/already have a rule/));
-    expect($("#message").className).toContain("toast-error");
-    expect($("#quickName").value).toBe("mom");
+  it("sends 'Upload new sound' to the settings page (a popup closes when a file dialog opens)", () => {
+    choose("Radwa", "__upload");
+    expect(chrome.runtime.openOptionsPage).toHaveBeenCalledTimes(1);
+    expect(selectOf("Radwa").value).toBe("__default"); // the dropdown is put back
   });
 
-  it("refuses an empty name", async () => {
-    $("#quickName").value = "   ";
-    submitQuickAdd();
-    await vi.waitFor(() => expect($("#message").textContent).toMatch(/Enter a name/));
+  it("shows an empty state when nothing has messaged you yet", async () => {
+    await mount({ setup: twoSounds });
+    expect($("#chatsEmpty").hidden).toBe(false);
+    expect($$("#chatList li")).toHaveLength(0);
   });
 
-  describe("with chats already configured", () => {
-    beforeEach(async () => {
-      await store.addRule({ kind: "chat", match: "Mom", action: "default" });
-      await store.addRule({ kind: "chat", match: "Boss", action: "silent" });
-      await mount({ initial: storage.data });
+  it("shows names as plain text, never as HTML", async () => {
+    await mount({
+      initial: {
+        recentSenders: [
+          { name: "<b onmouseover=x>hi</b>", kind: "chat", chatId: "1@lid", lastSeen: 1 },
+        ],
+      },
+      setup: twoSounds,
     });
+    expect($("#chatList b")).toBeNull();
+    expect($("#chatList .name").textContent).toBe("<b onmouseover=x>hi</b>");
+  });
 
-    it("lists every chat with its current sound", () => {
-      expect($$("#rulesList li .name").map((n) => n.textContent)).toEqual(["Boss", "Mom"]);
-      expect($$("#rulesList select")[0].value).toBe("__silent");
-      expect($$("#rulesList select")[1].value).toBe("__default");
-    });
-
-    it("changes the sound for one chat", async () => {
-      const mom = $$("#rulesList li").find((li) => li.textContent.includes("Mom"));
-      mom.querySelector("select").value = "id1";
-      fire(mom.querySelector("select"), "change");
-      await vi.waitFor(async () => {
-        const rules = (await store.load()).rules;
-        expect(rules.find((r) => r.match === "Mom")).toMatchObject({
-          action: "sound",
-          soundId: "id1",
-        });
-        expect(rules.find((r) => r.match === "Boss").action).toBe("silent");
-      });
-    });
-
-    it("deletes a chat", async () => {
-      const boss = $$("#rulesList li").find((li) => li.textContent.includes("Boss"));
-      boss.querySelector(".delete-rule").click();
-      await vi.waitFor(() => expect($$("#rulesList li")).toHaveLength(1));
-      expect((await store.load()).rules.map((r) => r.match)).toEqual(["Mom"]);
-    });
+  it("adds chats that arrive while it is open, but not under an open dropdown", async () => {
+    const arrive = () => {
+      storage.data.recentSenders = [
+        { name: "Late", kind: "chat", chatId: "9@lid", lastSeen: 9 },
+        ...recentSenders,
+      ];
+      changeListeners.forEach((fn) => fn({ recentSenders: {} }, "local"));
+    };
+    const select = selectOf("Radwa");
+    select.focus();
+    arrive();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(rowOf("Late")).toBeUndefined();
+    fire(select, "focusout");
+    await vi.waitFor(() => expect(rowOf("Late")).toBeTruthy());
   });
 });
 
-describe("popup", () => {
-  it("shows the on/off switch and volume from saved settings", async () => {
-    await mount({
-      setup: async (s) => {
-        await s.setSettings({ enabled: false, volume: 0.4 });
-      },
-    });
-    expect($("#enabled").checked).toBe(false);
-    expect($("#volume").value).toBe("0.4");
-    expect($(".volume-out").textContent).toBe("40%");
+describe("default sound, volume and the on/off switch", () => {
+  it("shows the default sound with an explanation, and lets you change it", async () => {
+    expect($$("#defaultSound option").map((o) => o.textContent)).toEqual([
+      "None (keep WhatsApp's own sound)",
+      "Chime.mp3",
+      "Ping.mp3",
+    ]);
+    expect($("#defaultHint").textContent).toMatch(/WhatsApp's normal sound/);
+    $("#defaultSound").value = "id2";
+    fire($("#defaultSound"), "change");
+    await vi.waitFor(async () => expect((await store.load()).settings.defaultSoundId).toBe("id2"));
+    expect($("#defaultHint").textContent).toMatch(/no sound of its own/);
   });
 
   it("saves the on/off switch and the volume", async () => {
@@ -200,49 +172,15 @@ describe("popup", () => {
     });
   });
 
-  it("lists recent chats with a sound picker each", () => {
-    expect($$("#recentList li")).toHaveLength(2);
-    expect($("#recentEmpty").hidden).toBe(true);
-    const labels = $$("#recentList .name").map((n) => n.textContent);
-    expect(labels).toEqual(["Radwa", "Family"]);
-    expect($$("#recentList li")[1].textContent).toContain("Group");
-  });
-
-  it("assigns a sound to a recent chat in one tap, bound to its chat id", async () => {
-    const select = $('#recentList [data-key="chat|601@lid"] select');
-    select.value = "id1";
-    fire(select, "change");
-    await vi.waitFor(async () => expect((await store.load()).rules).toHaveLength(1));
-    expect((await store.load()).rules[0]).toMatchObject({
-      match: "Radwa",
-      chatId: "601@lid",
-      action: "sound",
-      soundId: "id1",
+  it("shows saved settings when opened", async () => {
+    await mount({
+      setup: async (s) => {
+        await s.setSettings({ enabled: false, volume: 0.4 });
+      },
     });
-    expect($$("#recentList li")).toHaveLength(1); // it now has a rule, so it leaves the list
-  });
-
-  it("can silence a chat in one tap", async () => {
-    const select = $('#recentList [data-key="chat|120@g.us"] select');
-    select.value = "__silent";
-    fire(select, "change");
-    await vi.waitFor(async () =>
-      expect((await store.load()).rules[0]).toMatchObject({ action: "silent" })
-    );
-  });
-
-  it("ignores the placeholder option", async () => {
-    const select = $("#recentList select");
-    select.value = "";
-    fire(select, "change");
-    await new Promise((r) => setTimeout(r, 10));
-    expect((await store.load()).rules).toEqual([]);
-  });
-
-  it("shows an empty state when nothing has messaged you yet", async () => {
-    await mount({ setup: withSound });
-    expect($("#recentEmpty").hidden).toBe(false);
-    expect($$("#recentList li")).toHaveLength(0);
+    expect($("#enabled").checked).toBe(false);
+    expect($("#volume").value).toBe("0.4");
+    expect($(".volume-out").textContent).toBe("40%");
   });
 
   it("points a new user at settings when there are no sounds yet", async () => {
@@ -258,24 +196,41 @@ describe("popup", () => {
     $("#openSettings").click();
     expect(chrome.runtime.openOptionsPage).toHaveBeenCalledTimes(1);
   });
+});
 
-  it("adds chats that arrive while it is open", async () => {
-    await mount({ setup: withSound });
-    storage.data.recentSenders = [{ name: "Late", kind: "chat", chatId: "9@lid", lastSeen: 9 }];
-    changeListeners.forEach((fn) => fn({ recentSenders: {} }, "local"));
-    await vi.waitFor(() => expect($$("#recentList li")).toHaveLength(1));
+describe("adding a chat by name", () => {
+  it("adds a chat that has not messaged you", async () => {
+    $("#quickName").value = "  Mom ";
+    $("#quickSound").value = "id2";
+    submitQuickAdd();
+    await vi.waitFor(() => expect(rowOf("Mom")).toBeTruthy());
+    expect((await store.load()).rules[0]).toMatchObject({
+      match: "Mom",
+      chatId: null,
+      soundId: "id2",
+    });
+    expect($("#quickName").value).toBe("");
+    expect($("#message").textContent).toMatch(/Added "Mom"/);
   });
 
-  it("shows names as plain text, never as HTML", async () => {
-    await mount({
-      initial: {
-        recentSenders: [
-          { name: "<b onmouseover=x>hi</b>", kind: "chat", chatId: "1@lid", lastSeen: 1 },
-        ],
-      },
-      setup: withSound,
-    });
-    expect($("#recentList b")).toBeNull();
-    expect($("#recentList .name").textContent).toBe("<b onmouseover=x>hi</b>");
+  it("recognises a recent chat by name, so it is bound to the chat id and not listed twice", async () => {
+    $("#quickName").value = "radwa";
+    $("#quickSound").value = "__silent";
+    submitQuickAdd();
+    await vi.waitFor(async () => expect((await store.load()).rules).toHaveLength(1));
+    expect((await store.load()).rules[0].chatId).toBe("601@lid");
+    expect($$("#chatList li")).toHaveLength(2);
+  });
+
+  it("explains a duplicate and keeps what you typed; refuses an empty name", async () => {
+    await store.addRule({ kind: "chat", match: "Mom", action: "silent" });
+    $("#quickName").value = "mom";
+    submitQuickAdd();
+    await vi.waitFor(() => expect($("#message").textContent).toMatch(/already have a rule/));
+    expect($("#quickName").value).toBe("mom");
+
+    $("#quickName").value = "   ";
+    submitQuickAdd();
+    await vi.waitFor(() => expect($("#message").textContent).toMatch(/Enter a name/));
   });
 });

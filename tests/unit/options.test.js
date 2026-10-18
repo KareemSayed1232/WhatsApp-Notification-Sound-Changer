@@ -18,6 +18,11 @@ const fakeFile = (name = "ping.mp3", type = "audio/mpeg") => ({
   arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
 });
 
+const recentSenders = [
+  { name: "Radwa", kind: "chat", chatId: "601@lid", lastSeen: 3 },
+  { name: "Family", kind: "chat", chatId: "120@g.us", lastSeen: 2 },
+];
+
 let storage;
 let soundStore;
 let store;
@@ -53,40 +58,320 @@ async function mount({ initial = {}, setup } = {}) {
   });
 }
 
-const seedSound =
-  (name = "Ping") =>
-  (s) =>
-    s.addSound(fakeFile(`${name}.mp3`));
+const twoSounds = async (s) => {
+  await s.addSound(fakeFile("Ping.mp3")); // id1
+  await s.addSound(fakeFile("Chime.mp3")); // id2
+};
 
-async function addViaForm({ name, kind = "chat", sound = "__default" }) {
-  $("#ruleKind").value = kind;
-  $("#ruleName").value = name;
-  fire($("#ruleName"), "input");
-  $("#ruleSound").value = sound;
+const rowOf = (name) =>
+  $$("#chatList li").find((li) => li.querySelector(".name").textContent === name);
+const selectOf = (name) => rowOf(name).querySelector("select");
+const choose = (name, value) => {
+  const select = selectOf(name);
+  select.value = value;
+  fire(select, "change");
+};
+const submitAddByName = () =>
   $("#addRuleForm").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-}
+const pickFile = (...files) => {
+  Object.defineProperty($("#assignFile"), "files", { value: files, configurable: true });
+};
 
 beforeEach(() => mount());
 
 describe("first run", () => {
-  it("shows friendly empty states and a disabled default-sound picker", () => {
-    expect(text("#rulesEmpty")).toMatch(/No chats yet/);
-    expect($("#soundsEmpty").hidden).toBe(false);
+  it("explains that chats show up once they message you, and has a way to add one by name", () => {
+    expect($("#chatsEmpty").hidden).toBe(false);
+    expect(text("#chatsEmpty")).toMatch(/No chats yet/);
+    expect($("#addByName")).not.toBeNull();
     expect($("#defaultSound").disabled).toBe(true);
-    expect($("#recent").disabled).toBe(true);
     expect($("#enabled").checked).toBe(true);
     expect($("#showPopups").checked).toBe(false);
   });
 
-  it("explains that no default sound leaves WhatsApp's normal sound in place", () => {
+  it("explains what having no default sound means", () => {
     expect(text("#defaultHint")).toMatch(/WhatsApp's normal sound/);
   });
 
   it("labels every control so it is usable with a screen reader", () => {
-    for (const id of ["recent", "ruleKind", "ruleName", "ruleSound", "defaultSound", "volume"]) {
+    for (const id of ["ruleName", "ruleSound", "defaultSound", "volume"]) {
       expect(document.querySelector(`label[for="${id}"]`), `label for #${id}`).not.toBeNull();
     }
+    expect($("#search").getAttribute("aria-label")).toBeTruthy();
     expect($("#message").getAttribute("aria-live")).toBe("polite");
+  });
+});
+
+describe("your chats: one dropdown per chat", () => {
+  beforeEach(() => mount({ initial: { recentSenders }, setup: twoSounds }));
+
+  it("lists the chats that messaged you, newest first, hiding the empty message", () => {
+    expect($("#chatsEmpty").hidden).toBe(true);
+    expect($$("#chatList .name").map((n) => n.textContent)).toEqual(["Radwa", "Family"]);
+    expect(rowOf("Family").textContent).toContain("Group");
+  });
+
+  it("offers default, silent, every loaded sound, and uploading a new one", () => {
+    const labels = [...selectOf("Radwa").options].map((o) => o.textContent);
+    expect(labels).toEqual([
+      "Default sound",
+      "Silent (no sound)",
+      "Chime.mp3", // same upload time, so alphabetical
+      "Ping.mp3",
+      "＋ Upload new sound…",
+    ]);
+  });
+
+  it("sets a chat's sound with a single change, bound to the chat id", async () => {
+    choose("Radwa", "id1");
+    await vi.waitFor(async () => expect((await store.load()).rules).toHaveLength(1));
+    expect((await store.load()).rules[0]).toMatchObject({
+      kind: "chat",
+      match: "Radwa",
+      chatId: "601@lid",
+      action: "sound",
+      soundId: "id1",
+    });
+    await vi.waitFor(() => expect(rowOf("Radwa").classList.contains("is-set")).toBe(true));
+    expect(selectOf("Radwa").value).toBe("id1");
+    expect(text('[data-sound-id="id1"] .meta')).toMatch(/used by 1/);
+  });
+
+  it("keeps keyboard focus on the dropdown after a change", async () => {
+    choose("Radwa", "id1");
+    await vi.waitFor(() => expect(document.activeElement).toBe(selectOf("Radwa")));
+  });
+
+  it("can silence a chat", async () => {
+    choose("Family", "__silent");
+    await vi.waitFor(async () =>
+      expect((await store.load()).rules[0]).toMatchObject({ action: "silent" })
+    );
+    expect(selectOf("Family").value).toBe("__silent");
+  });
+
+  it("returns a chat to the default sound by removing its rule", async () => {
+    choose("Radwa", "id1");
+    await vi.waitFor(() => expect(rowOf("Radwa").classList.contains("is-set")).toBe(true));
+    choose("Radwa", "__default");
+    await vi.waitFor(async () => expect((await store.load()).rules).toEqual([]));
+    expect(rowOf("Radwa")).toBeTruthy(); // still listed, since it has messaged you
+    expect(rowOf("Radwa").classList.contains("is-set")).toBe(false);
+    expect(selectOf("Radwa").value).toBe("__default");
+  });
+
+  it("filters the list as you type", () => {
+    $("#search").value = "fam";
+    fire($("#search"), "input");
+    expect($$("#chatList li")).toHaveLength(1);
+    $("#search").value = "zzz";
+    fire($("#search"), "input");
+    expect(text("#chatsEmpty")).toMatch(/Nothing matches/);
+  });
+
+  it("shows names as plain text, never as HTML", async () => {
+    const evil = '<img src=x onerror="alert(1)">';
+    await mount({
+      initial: { recentSenders: [{ name: evil, kind: "chat", chatId: "1@lid", lastSeen: 1 }] },
+    });
+    expect($("#chatList img")).toBeNull();
+    expect(text("#chatList .name")).toBe(evil);
+  });
+});
+
+describe("chats that have a rule but have not messaged yet", () => {
+  beforeEach(() =>
+    mount({
+      initial: { recentSenders },
+      setup: async (s) => {
+        await twoSounds(s);
+        await s.addRule({ kind: "chat", match: "Amy", action: "sound", soundId: "id2" });
+      },
+    })
+  );
+
+  it("are listed after the seen chats and show their sound", () => {
+    expect($$("#chatList .name").map((n) => n.textContent)).toEqual(["Radwa", "Family", "Amy"]);
+    expect(selectOf("Amy").value).toBe("id2");
+    expect(rowOf("Amy").classList.contains("is-set")).toBe(true);
+  });
+
+  it("drop off the list when set back to the default sound", async () => {
+    choose("Amy", "__default");
+    await vi.waitFor(() => expect(rowOf("Amy")).toBeUndefined());
+  });
+});
+
+describe("uploading a new sound straight from a chat's dropdown", () => {
+  beforeEach(() => mount({ initial: { recentSenders }, setup: twoSounds }));
+
+  it("opens the file picker instead of leaving the dropdown on 'Upload'", () => {
+    $("#assignFile").click = vi.fn();
+    choose("Radwa", "__upload");
+    expect($("#assignFile").click).toHaveBeenCalledTimes(1);
+  });
+
+  it("uploads the file and gives it to that chat in one step", async () => {
+    choose("Radwa", "__upload");
+    pickFile(fakeFile("meow.mp3"));
+    fire($("#assignFile"), "change");
+
+    await vi.waitFor(async () => expect((await store.load()).rules).toHaveLength(1));
+    const state = await store.load();
+    const meow = Object.values(state.sounds).find((s) => s.name === "meow.mp3");
+    expect(meow).toBeTruthy();
+    expect(state.rules[0]).toMatchObject({ match: "Radwa", chatId: "601@lid", soundId: meow.id });
+    expect(text("#message")).toBe('Added "meow.mp3" for Radwa.');
+    await vi.waitFor(() => expect(selectOf("Radwa").value).toBe(meow.id));
+    expect($$("#soundList li")).toHaveLength(3);
+  });
+
+  it("puts the dropdown back when the picker is cancelled", async () => {
+    choose("Radwa", "__upload");
+    pickFile(); // nothing chosen
+    fire($("#assignFile"), "cancel");
+    await vi.waitFor(() => expect(selectOf("Radwa").value).toBe("__default"));
+    expect(Object.keys((await store.load()).sounds)).toHaveLength(2);
+  });
+
+  it("shows a clear error for an unsupported file and changes nothing", async () => {
+    choose("Radwa", "__upload");
+    pickFile(fakeFile("notes.txt", "text/plain"));
+    fire($("#assignFile"), "change");
+    await vi.waitFor(() => expect(text("#message")).toMatch(/isn't supported/));
+    expect($("#message").className).toContain("toast-error");
+    expect(selectOf("Radwa").value).toBe("__default");
+    expect((await store.load()).rules).toEqual([]);
+  });
+});
+
+describe("adding a chat by name", () => {
+  beforeEach(() => mount({ initial: { recentSenders }, setup: twoSounds }));
+
+  it("adds a chat that has not messaged you yet", async () => {
+    $("#ruleName").value = "  Mom ";
+    $("#ruleSound").value = "id1";
+    submitAddByName();
+    await vi.waitFor(() => expect(rowOf("Mom")).toBeTruthy());
+    expect((await store.load()).rules[0]).toMatchObject({
+      match: "Mom",
+      chatId: null,
+      soundId: "id1",
+    });
+    expect($("#ruleName").value).toBe("");
+    expect(selectOf("Mom").value).toBe("id1");
+  });
+
+  it("recognises a name from your recent chats and does not list it twice", async () => {
+    $("#ruleName").value = "radwa";
+    $("#ruleSound").value = "__silent";
+    submitAddByName();
+    await vi.waitFor(async () => expect((await store.load()).rules).toHaveLength(1));
+    expect((await store.load()).rules[0].chatId).toBe("601@lid");
+    expect($$("#chatList .name").map((n) => n.textContent)).toEqual(["Radwa", "Family"]);
+    expect(rowOf("Radwa").classList.contains("is-set")).toBe(true);
+  });
+
+  it("explains a duplicate and an empty name", async () => {
+    await store.addRule({ kind: "chat", match: "Mom", action: "silent" });
+    $("#ruleName").value = "mom";
+    submitAddByName();
+    await vi.waitFor(() => expect(text("#message")).toMatch(/already have a rule/));
+    $("#ruleName").value = "   ";
+    submitAddByName();
+    await vi.waitFor(() => expect(text("#message")).toMatch(/Enter a name/));
+  });
+});
+
+describe("sounds", () => {
+  const upload = (...files) => {
+    Object.defineProperty($("#soundFile"), "files", { value: files, configurable: true });
+    fire($("#soundFile"), "change");
+  };
+
+  it("adds an uploaded sound and makes the first one the default", async () => {
+    upload(fakeFile("ping.mp3"));
+    await vi.waitFor(() => expect($$("#soundList li")).toHaveLength(1));
+    const state = await store.load();
+    expect(state.settings.defaultSoundId).toBe(Object.keys(state.sounds)[0]);
+    expect(text("#message")).toMatch(/Added "ping.mp3"/);
+    expect($(".badge").textContent).toBe("Default");
+    expect($("#defaultSound").disabled).toBe(false);
+    expect(text("#defaultHint")).toMatch(/no sound of its own/);
+  });
+
+  it("keeps the existing default when more sounds are added", async () => {
+    upload(fakeFile("a.mp3"));
+    await vi.waitFor(() => expect($$("#soundList li")).toHaveLength(1));
+    const first = (await store.load()).settings.defaultSoundId;
+    upload(fakeFile("b.mp3"), fakeFile("c.mp3"));
+    await vi.waitFor(() => expect($$("#soundList li")).toHaveLength(3));
+    expect((await store.load()).settings.defaultSoundId).toBe(first);
+  });
+
+  it("rejects an unsupported file with a clear message and stores nothing", async () => {
+    upload(fakeFile("notes.txt", "text/plain"));
+    await vi.waitFor(() => expect(text("#message")).toMatch(/isn't supported/));
+    expect(Object.keys((await store.load()).sounds)).toEqual([]);
+  });
+
+  it("changes the default sound, including back to none", async () => {
+    await mount({ setup: twoSounds });
+    $("#defaultSound").value = "id2";
+    fire($("#defaultSound"), "change");
+    await vi.waitFor(async () => expect((await store.load()).settings.defaultSoundId).toBe("id2"));
+    $("#defaultSound").value = "";
+    fire($("#defaultSound"), "change");
+    await vi.waitFor(async () => expect((await store.load()).settings.defaultSoundId).toBeNull());
+    expect(text("#defaultHint")).toMatch(/WhatsApp's normal sound/);
+  });
+
+  it("previews a sound and can make another one the default", async () => {
+    await mount({
+      setup: async (s) => {
+        await twoSounds(s);
+        await s.setSettings({ defaultSoundId: "id1" });
+      },
+    });
+    $('[data-sound-id="id1"] .preview').click();
+    expect(player.toggle).toHaveBeenCalledWith("id1");
+    $('[data-sound-id="id2"] .make-default').click();
+    await vi.waitFor(async () => expect((await store.load()).settings.defaultSoundId).toBe("id2"));
+  });
+
+  it("asks before deleting, and keeps the sound if you cancel", async () => {
+    await mount({
+      setup: async (s) => {
+        const sound = await s.addSound(fakeFile());
+        await s.setSettings({ defaultSoundId: sound.id });
+      },
+    });
+    confirmFn.mockReturnValue(false);
+    $(".delete-sound").click();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(confirmFn).toHaveBeenCalledWith(expect.stringContaining("Chats using it will go back"));
+    expect(Object.keys((await store.load()).sounds)).toHaveLength(1);
+  });
+
+  it("deletes a sound and returns the chats that used it to the default", async () => {
+    await mount({
+      initial: { recentSenders },
+      setup: async (s) => {
+        const sound = await s.addSound(fakeFile());
+        await s.addRule({
+          kind: "chat",
+          match: "Radwa",
+          chatId: "601@lid",
+          action: "sound",
+          soundId: sound.id,
+        });
+      },
+    });
+    expect(selectOf("Radwa").value).toBe("id1");
+    $(".delete-sound").click();
+    await vi.waitFor(() => expect($$("#soundList li")).toHaveLength(0));
+    expect(selectOf("Radwa").value).toBe("__default");
+    expect(text("#message")).toMatch(/Deleted/);
   });
 });
 
@@ -112,249 +397,35 @@ describe("settings", () => {
   });
 });
 
-describe("sounds", () => {
-  const upload = async (...files) => {
-    Object.defineProperty($("#soundFile"), "files", { value: files, configurable: true });
-    fire($("#soundFile"), "change");
+describe("new chats while the page is open", () => {
+  beforeEach(() => mount({ initial: { recentSenders }, setup: twoSounds }));
+
+  const newChatArrives = () => {
+    storage.data.recentSenders = [
+      { name: "Newcomer", kind: "chat", chatId: "7@lid", lastSeen: 9 },
+      ...recentSenders,
+    ];
+    changeListeners.forEach((fn) => fn({ recentSenders: {} }, "local"));
   };
 
-  it("adds an uploaded sound and makes the first one the default", async () => {
-    await upload(fakeFile("ping.mp3"));
-    await vi.waitFor(() => expect($$("#soundList li")).toHaveLength(1));
-    const state = await store.load();
-    expect(state.settings.defaultSoundId).toBe(Object.keys(state.sounds)[0]);
-    expect(text("#message")).toMatch(/Added "ping.mp3"/);
-    expect($(".badge").textContent).toBe("Default");
-    expect($("#defaultSound").disabled).toBe(false);
+  it("adds them to the list without reloading", async () => {
+    newChatArrives();
+    await vi.waitFor(() => expect(rowOf("Newcomer")).toBeTruthy());
+    expect($$("#chatList .name")[0].textContent).toBe("Newcomer");
   });
 
-  it("keeps the existing default when more sounds are added", async () => {
-    await upload(fakeFile("a.mp3"));
-    await vi.waitFor(() => expect($$("#soundList li")).toHaveLength(1));
-    const first = (await store.load()).settings.defaultSoundId;
-    await upload(fakeFile("b.mp3"), fakeFile("c.mp3"));
-    await vi.waitFor(() => expect($$("#soundList li")).toHaveLength(3));
-    expect((await store.load()).settings.defaultSoundId).toBe(first);
+  it("waits until you leave a dropdown, so an open menu is never yanked away", async () => {
+    const select = selectOf("Radwa");
+    select.focus();
+    newChatArrives();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(rowOf("Newcomer")).toBeUndefined();
+
+    fire(select, "focusout");
+    await vi.waitFor(() => expect(rowOf("Newcomer")).toBeTruthy());
   });
 
-  it("rejects an unsupported file with a clear message and stores nothing", async () => {
-    await upload(fakeFile("notes.txt", "text/plain"));
-    await vi.waitFor(() => expect(text("#message")).toMatch(/isn't supported/));
-    expect($("#message").className).toContain("toast-error");
-    expect(Object.keys((await store.load()).sounds)).toEqual([]);
-  });
-
-  it("changes the default sound, including back to none", async () => {
-    await mount({
-      setup: async (s) => {
-        await seedSound("A")(s);
-        await seedSound("B")(s);
-      },
-    });
-    const [first, second] = Object.keys((await store.load()).sounds);
-    $("#defaultSound").value = second;
-    fire($("#defaultSound"), "change");
-    await vi.waitFor(async () => expect((await store.load()).settings.defaultSoundId).toBe(second));
-    $("#defaultSound").value = "";
-    fire($("#defaultSound"), "change");
-    await vi.waitFor(async () => expect((await store.load()).settings.defaultSoundId).toBeNull());
-    expect(first).toBeTruthy();
-  });
-
-  it("previews a sound", async () => {
-    await mount({ setup: seedSound() });
-    $(".preview").click();
-    expect(player.toggle).toHaveBeenCalledWith("id1");
-  });
-
-  it("makes a non-default sound the default", async () => {
-    await mount({
-      setup: async (s) => {
-        await seedSound("A")(s);
-        await seedSound("B")(s);
-        await s.setSettings({ defaultSoundId: "id1" });
-      },
-    });
-    $('[data-sound-id="id2"] .make-default').click();
-    await vi.waitFor(async () => expect((await store.load()).settings.defaultSoundId).toBe("id2"));
-  });
-
-  it("asks before deleting, and keeps the sound if you cancel", async () => {
-    await mount({
-      setup: async (s) => {
-        const sound = await seedSound()(s);
-        await s.setSettings({ defaultSoundId: sound.id });
-      },
-    });
-    confirmFn.mockReturnValue(false);
-    $(".delete-sound").click();
-    await new Promise((r) => setTimeout(r, 10));
-    expect(confirmFn).toHaveBeenCalledWith(expect.stringContaining("Chats using it will go back"));
-    expect(Object.keys((await store.load()).sounds)).toHaveLength(1);
-  });
-
-  it("deletes a sound and returns the chats that used it to the default", async () => {
-    await mount({
-      setup: async (s) => {
-        const sound = await seedSound()(s);
-        await s.addRule({ kind: "chat", match: "Alice", action: "sound", soundId: sound.id });
-      },
-    });
-    $(".delete-sound").click();
-    await vi.waitFor(() => expect($$("#soundList li")).toHaveLength(0));
-    const state = await store.load();
-    expect(state.rules[0]).toMatchObject({ action: "default", soundId: null });
-    expect($(".rule-sound").value).toBe("__default");
-    expect(text("#message")).toMatch(/Deleted/);
-  });
-});
-
-describe("chat rules", () => {
-  it("adds a rule by typing a name", async () => {
-    await mount({ setup: seedSound() });
-    await addViaForm({ name: "  Mom ", sound: "id1" });
-    await vi.waitFor(() => expect($$("#rulesBody tr")).toHaveLength(1));
-    expect((await store.load()).rules[0]).toMatchObject({
-      kind: "chat",
-      match: "Mom",
-      action: "sound",
-      soundId: "id1",
-      chatId: null,
-    });
-    expect($("#ruleName").value).toBe("");
-    expect(text(".cell-name .name")).toBe("Mom");
-  });
-
-  it("adds a person-in-a-group rule", async () => {
-    await addViaForm({ name: "Bob", kind: "sender", sound: "__silent" });
-    await vi.waitFor(() => expect($$("#rulesBody tr")).toHaveLength(1));
-    expect((await store.load()).rules[0]).toMatchObject({ kind: "sender", action: "silent" });
-    expect(text(".cell-name .meta")).toBe("Person in a group");
-  });
-
-  it("picks a recent chat, binds it to its chat id, and removes it from the recent list", async () => {
-    await mount({
-      initial: { recentSenders: [{ name: "Radwa", kind: "chat", chatId: "601@lid", lastSeen: 1 }] },
-    });
-    expect($("#recent").disabled).toBe(false);
-    $("#recent").value = "chat|601@lid";
-    fire($("#recent"), "change");
-    expect($("#ruleName").value).toBe("Radwa");
-
-    $("#ruleSound").value = "__silent";
-    $("#addRuleForm").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    await vi.waitFor(() => expect($$("#rulesBody tr")).toHaveLength(1));
-
-    expect((await store.load()).rules[0]).toMatchObject({
-      match: "Radwa",
-      chatId: "601@lid",
-      action: "silent",
-    });
-    expect($$("#recent option").map((o) => o.value)).toEqual([""]);
-    expect($(".linked")).not.toBeNull();
-  });
-
-  it("forgets the picked chat id when the name is edited by hand", async () => {
-    await mount({
-      initial: { recentSenders: [{ name: "Radwa", kind: "chat", chatId: "601@lid", lastSeen: 1 }] },
-    });
-    $("#recent").value = "chat|601@lid";
-    fire($("#recent"), "change");
-    $("#ruleName").value = "Somebody else";
-    fire($("#ruleName"), "input");
-    $("#addRuleForm").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    await vi.waitFor(() => expect($$("#rulesBody tr")).toHaveLength(1));
-    expect((await store.load()).rules[0].chatId).toBeNull();
-  });
-
-  it("explains a duplicate instead of failing silently", async () => {
-    await mount({ setup: (s) => s.addRule({ kind: "chat", match: "Alice", action: "silent" }) });
-    await addViaForm({ name: "alice" });
-    await vi.waitFor(() => expect(text("#message")).toMatch(/already have a rule/));
-    expect($("#message").className).toContain("toast-error");
-    expect($$("#rulesBody tr")).toHaveLength(1);
-  });
-
-  it("refuses an empty name", async () => {
-    await addViaForm({ name: "   " });
-    await vi.waitFor(() => expect(text("#message")).toMatch(/Enter a name/));
-  });
-
-  describe("with existing rules", () => {
-    beforeEach(() =>
-      mount({
-        setup: async (s) => {
-          await seedSound()(s);
-          await s.addRule({ kind: "chat", match: "Alice", action: "default" });
-          await s.addRule({ kind: "chat", match: "Bob", action: "default" });
-        },
-      })
-    );
-
-    it("changes the sound for one chat only", async () => {
-      const alice = $$("#rulesBody tr").find((tr) => tr.textContent.includes("Alice"));
-      alice.querySelector(".rule-sound").value = "id1";
-      fire(alice.querySelector(".rule-sound"), "change");
-      await vi.waitFor(async () => {
-        const rules = (await store.load()).rules;
-        expect(rules.find((r) => r.match === "Alice")).toMatchObject({
-          action: "sound",
-          soundId: "id1",
-        });
-        expect(rules.find((r) => r.match === "Bob").action).toBe("default");
-      });
-    });
-
-    it("switches a rule off and on", async () => {
-      const row = $("#rulesBody tr");
-      const toggle = row.querySelector("input[type=checkbox]");
-      toggle.checked = false;
-      fire(toggle, "change");
-      expect(row.classList.contains("is-off")).toBe(true);
-      await vi.waitFor(async () =>
-        expect((await store.load()).rules.find((r) => r.match === "Alice").enabled).toBe(false)
-      );
-    });
-
-    it("deletes a rule", async () => {
-      $("#rulesBody tr .delete-rule").click();
-      await vi.waitFor(() => expect($$("#rulesBody tr")).toHaveLength(1));
-      expect((await store.load()).rules.map((r) => r.match)).toEqual(["Bob"]);
-    });
-
-    it("filters the list as you type", () => {
-      $("#search").value = "bo";
-      fire($("#search"), "input");
-      expect($$("#rulesBody tr")).toHaveLength(1);
-      expect(text("#rulesBody .name")).toBe("Bob");
-
-      $("#search").value = "zzz";
-      fire($("#search"), "input");
-      expect($("#rulesEmpty").hidden).toBe(false);
-      expect(text("#rulesEmpty")).toMatch(/Nothing matches/);
-    });
-  });
-});
-
-describe("security and live updates", () => {
-  it("shows contact names as plain text, never as HTML", async () => {
-    const evil = '<img src=x onerror="alert(1)">';
-    await mount({ setup: (s) => s.addRule({ kind: "chat", match: evil, action: "silent" }) });
-    expect($("#rulesBody img")).toBeNull();
-    expect(text("#rulesBody .name")).toBe(evil);
-  });
-
-  it("offers newly seen chats without reloading the page", async () => {
-    expect($("#recent").disabled).toBe(true);
-    storage.data.recentSenders = [{ name: "Newcomer", kind: "chat", chatId: "7@lid", lastSeen: 5 }];
-    changeListeners.forEach((fn) => fn({ recentSenders: {} }, "local"));
-    await vi.waitFor(() =>
-      expect($$("#recent option").map((o) => o.textContent)).toContain("Newcomer (Chat)")
-    );
-    expect($("#recent").disabled).toBe(false);
-  });
-
-  it("ignores storage changes that are not about recent chats", () => {
+  it("ignores storage changes that are not about chats", () => {
     const before = storage.calls.get;
     changeListeners.forEach((fn) => fn({ rules: {} }, "local"));
     changeListeners.forEach((fn) => fn({ recentSenders: {} }, "sync"));

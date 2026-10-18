@@ -1,13 +1,13 @@
+import { addChatByName, applyChoice } from "./chat-actions.mjs";
 import { fillSelect, h } from "./dom.mjs";
 import { icon } from "./icons.mjs";
 import { STRINGS as S, errorMessage } from "./strings.mjs";
 import {
   CHOICE_DEFAULT,
-  buildRuleRows,
+  CHOICE_UPLOAD,
+  buildChatRows,
   buildSoundRows,
-  choiceToAction,
   defaultSoundHint,
-  recentChoices,
   soundChoices,
 } from "./view-model.mjs";
 
@@ -42,6 +42,10 @@ function createDefaultPlayer({ soundStore, window }) {
   };
 }
 
+/**
+ * The settings page. The main thing on it is one list of your chats: each row has a single
+ * dropdown to pick its sound (a loaded one, silent, the default, or a brand-new upload).
+ */
 export async function mountOptions({
   document,
   stateStore,
@@ -54,11 +58,13 @@ export async function mountOptions({
   const confirmAction = confirmFn ?? ((text) => win.confirm(text));
   const player = createPlayer({ soundStore, window: win });
   const el = (tag, props, ...kids) => h(document, tag, props, ...kids);
+  const percent = (value) => `${Math.round(Number(value) * 100)}%`;
 
   let state = await stateStore.load();
   let filter = "";
-  let linkedChatId = null; // chat id of the recent chat picked in the add form, if any
   let toastTimer = null;
+  let uploadTarget = null; // key of the chat whose "Upload new sound…" was chosen
+  let chatsStale = false; // new chats arrived while a dropdown was open
 
   // ---------------------------------------------------------------- building blocks
 
@@ -93,37 +99,7 @@ export async function mountOptions({
     hidden: true,
   });
 
-  // Add-rule form
-  const recent = el("select", { id: "recent", class: "select", onChange: onPickRecent });
-  const ruleKind = el(
-    "select",
-    { id: "ruleKind", class: "select" },
-    el("option", { value: "chat" }, S.kindChat),
-    el("option", { value: "sender" }, S.kindSender)
-  );
-  const ruleName = el("input", {
-    id: "ruleName",
-    class: "input",
-    type: "text",
-    maxlength: 200,
-    autocomplete: "off",
-    placeholder: S.namePlaceholder,
-    onInput: () => {
-      linkedChatId = null; // typing by hand means it is no longer the chat that was picked
-    },
-  });
-  const ruleSound = el("select", { id: "ruleSound", class: "select" });
-  const addForm = el(
-    "form",
-    { id: "addRuleForm", class: "add-form", onSubmit: onAddRule },
-    field(S.recentLabel, "recent", recent),
-    field(S.kindLabel, "ruleKind", ruleKind),
-    field(S.nameLabel, "ruleName", ruleName),
-    field(S.soundLabel, "ruleSound", ruleSound),
-    el("button", { class: "btn btn-primary", type: "submit" }, icon(document, "plus"), S.addRule)
-  );
-  const recentHelp = el("p", { class: "hint", id: "recentHelp" }, S.recentHelp);
-
+  // Chats
   const search = el("input", {
     id: "search",
     class: "input",
@@ -132,11 +108,39 @@ export async function mountOptions({
     "aria-label": S.search,
     onInput: (event) => {
       filter = event.target.value;
-      renderRules();
+      renderChats();
     },
   });
-  const rulesBody = el("tbody", { id: "rulesBody" });
-  const rulesEmpty = el("p", { class: "empty", id: "rulesEmpty" });
+  const chatList = el("ul", { id: "chatList", class: "chat-list", onFocusout: onChatsFocusOut });
+  const chatsEmpty = el("p", { class: "empty", id: "chatsEmpty" });
+  const assignFile = el("input", {
+    id: "assignFile",
+    type: "file",
+    accept: "audio/*",
+    class: "visually-hidden",
+    tabindex: -1,
+    "aria-hidden": "true",
+    onChange: onAssignFile,
+    onCancel: onAssignFile,
+  });
+
+  // Add a chat by name
+  const ruleName = el("input", {
+    id: "ruleName",
+    class: "input",
+    type: "text",
+    maxlength: 200,
+    autocomplete: "off",
+    placeholder: S.namePlaceholder,
+  });
+  const ruleSound = el("select", { id: "ruleSound", class: "select" });
+  const addForm = el(
+    "form",
+    { id: "addRuleForm", class: "add-form", onSubmit: onAddByName },
+    field(S.nameLabel, "ruleName", ruleName),
+    field(S.soundLabel, "ruleSound", ruleSound),
+    el("button", { class: "btn btn-primary", type: "submit" }, icon(document, "plus"), S.addRule)
+  );
 
   // Sounds
   const defaultSound = el("select", {
@@ -144,6 +148,7 @@ export async function mountOptions({
     class: "select",
     onChange: onDefaultSound,
   });
+  const defaultHint = el("p", { class: "hint", id: "defaultHint" });
   const volume = el("input", {
     id: "volume",
     type: "range",
@@ -165,9 +170,6 @@ export async function mountOptions({
   const soundList = el("ul", { id: "soundList", class: "sound-list" });
   const soundsEmpty = el("p", { class: "empty", id: "soundsEmpty" }, S.soundsEmpty);
 
-  const percent = (value) => `${Math.round(Number(value) * 100)}%`;
-  const defaultHint = el("p", { class: "hint", id: "defaultHint" });
-
   const page = el(
     "div",
     { class: "page" },
@@ -188,32 +190,19 @@ export async function mountOptions({
       {},
       el(
         "section",
-        { class: "card", "aria-labelledby": "h-rules" },
-        el("h2", { id: "h-rules" }, S.rulesTitle),
-        el("p", { class: "hint" }, S.rulesHint),
-        addForm,
-        recentHelp,
+        { class: "card", "aria-labelledby": "h-chats" },
+        el("h2", { id: "h-chats" }, S.chatsTitle),
+        el("p", { class: "hint" }, S.chatsHint),
         el("div", { class: "toolbar" }, search),
+        chatList,
+        chatsEmpty,
+        assignFile,
         el(
-          "table",
-          { class: "rules" },
-          el("caption", { class: "visually-hidden" }, S.rulesTitle),
-          el(
-            "thead",
-            {},
-            el(
-              "tr",
-              {},
-              el("th", { scope: "col" }, S.colName),
-              el("th", { scope: "col" }, S.colSound),
-              el("th", { scope: "col" }, S.colOn),
-              // Keep the cell in the table grid; only its text is hidden.
-              el("th", { scope: "col" }, el("span", { class: "visually-hidden" }, S.delete))
-            )
-          ),
-          rulesBody
-        ),
-        rulesEmpty
+          "details",
+          { class: "add-by-name", id: "addByName" },
+          el("summary", {}, S.addByName),
+          addForm
+        )
       ),
       el(
         "section",
@@ -277,37 +266,22 @@ export async function mountOptions({
   }
 
   function renderDefaultSound() {
-    const sounds = Object.values(state.sounds);
+    const rows = buildSoundRows(state);
     fillSelect(
       document,
       defaultSound,
       [
         { value: "", label: S.noDefault },
-        ...buildSoundRows(state).map((row) => ({ value: row.id, label: row.name })),
+        ...rows.map((row) => ({ value: row.id, label: row.name })),
       ],
       state.settings.defaultSoundId ?? ""
     );
-    defaultSound.disabled = sounds.length === 0;
+    defaultSound.disabled = rows.length === 0;
     defaultHint.textContent = defaultSoundHint(state);
   }
 
   function renderSoundPicker() {
     fillSelect(document, ruleSound, soundChoices(state.sounds), ruleSound.value || CHOICE_DEFAULT);
-  }
-
-  function renderRecent() {
-    const choices = recentChoices(state);
-    fillSelect(
-      document,
-      recent,
-      [
-        { value: "", label: S.recentPlaceholder },
-        ...choices.map((c) => ({ value: c.key, label: `${c.name} (${c.kindLabel})` })),
-      ],
-      ""
-    );
-    recent.disabled = choices.length === 0;
-    recentHelp.hidden = choices.length > 0;
   }
 
   function renderSounds() {
@@ -374,78 +348,52 @@ export async function mountOptions({
     );
   }
 
-  function ruleRow(row) {
+  function chatRow(row) {
     const select = el("select", {
-      class: "select rule-sound",
-      "aria-label": `${S.soundLabel}: ${row.label}`,
-      onChange: (event) =>
-        run(() => stateStore.updateRule(row.id, choiceToAction(event.target.value))),
+      class: "select chat-sound",
+      "aria-label": `${S.soundLabel}: ${row.name}`,
+      onChange: (event) => onChatChoice(row.key, event.target),
     });
-    fillSelect(document, select, soundChoices(state.sounds), row.choice);
-
-    const toggle = switchControl({
-      id: `on-${row.id}`,
-      label: row.label,
-      onChange: (event) => {
-        tr.classList.toggle("is-off", !event.target.checked);
-        run(() => stateStore.updateRule(row.id, { enabled: event.target.checked }));
-      },
-    });
-    toggle.input.checked = row.enabled;
-    toggle.node.classList.add("switch-compact");
-    toggle.node.querySelector(".switch-text").className = "visually-hidden";
-
-    const tr = el(
-      "tr",
-      { dataset: { ruleId: row.id }, class: row.enabled ? "" : "is-off" },
+    fillSelect(document, select, soundChoices(state.sounds, { allowUpload: true }), row.choice);
+    return el(
+      "li",
+      { dataset: { key: row.key }, class: row.hasRule ? "is-set" : "" },
       el(
-        "td",
-        { class: "cell-name", "data-label": S.colName },
-        el("span", { class: "name" }, row.label),
+        "div",
+        { class: "chat-name" },
+        el("span", { class: "name" }, row.name),
         el(
           "span",
           { class: "meta" },
           row.kindLabel,
-          row.linked
+          row.chatId && row.hasRule
             ? el("span", { class: "linked", title: S.followsRenames }, icon(document, "link", 13))
             : null
         )
       ),
-      el("td", { "data-label": S.colSound }, select),
-      el("td", { class: "cell-on", "data-label": S.colOn }, toggle.node),
-      el(
-        "td",
-        { class: "cell-actions" },
-        el(
-          "button",
-          {
-            class: "icon-btn danger delete-rule",
-            type: "button",
-            "aria-label": `${S.delete} ${row.label}`,
-            title: S.delete,
-            onClick: () => onDeleteRule(row.id),
-          },
-          icon(document, "trash")
-        )
-      )
+      select
     );
-    return tr;
   }
 
-  function renderRules() {
-    const rows = buildRuleRows(state, filter);
-    rulesBody.replaceChildren(...rows.map(ruleRow));
-    rulesEmpty.hidden = rows.length > 0;
-    rulesEmpty.textContent = state.rules.length === 0 ? S.rulesEmpty : S.rulesNoMatch;
+  function renderChats() {
+    const rows = buildChatRows(state, filter);
+    chatList.replaceChildren(...rows.map(chatRow));
+    chatsEmpty.hidden = rows.length > 0;
+    chatsEmpty.textContent =
+      state.recentSenders.length + state.rules.length === 0 ? S.chatsEmpty : S.rulesNoMatch;
   }
 
   function renderAll() {
     renderSettings();
     renderDefaultSound();
     renderSoundPicker();
-    renderRecent();
+    renderChats();
     renderSounds();
-    renderRules();
+  }
+
+  function focusRow(key) {
+    const item = [...chatList.children].find((li) => li.dataset.key === key);
+    item?.querySelector("select")?.focus();
   }
 
   // ---------------------------------------------------------------- actions
@@ -469,6 +417,8 @@ export async function mountOptions({
     }
   }
 
+  const findRow = (key) => buildChatRows(state).find((row) => row.key === key);
+
   function onEnabled() {
     run(() => stateStore.setSettings({ enabled: enabled.input.checked }));
   }
@@ -482,16 +432,66 @@ export async function mountOptions({
   }
 
   function setDefaultSound(soundId) {
-    return run(() => stateStore.setSettings({ defaultSoundId: soundId || null })).then(renderAfter);
+    return run(() => stateStore.setSettings({ defaultSoundId: soundId || null })).then(() => {
+      renderDefaultSound();
+      renderSounds();
+    });
   }
 
   function onDefaultSound() {
     setDefaultSound(defaultSound.value);
   }
 
-  function renderAfter() {
-    renderDefaultSound();
+  // One click: pick a sound for a chat. "Upload new sound…" opens the file picker and then
+  // uploads and assigns in one go.
+  async function onChatChoice(key, select) {
+    const row = findRow(key);
+    if (!row) return;
+    if (select.value === CHOICE_UPLOAD) {
+      uploadTarget = key;
+      assignFile.value = "";
+      assignFile.click();
+      return;
+    }
+    await run(() => applyChoice(stateStore, row, select.value));
+    renderChats();
     renderSounds();
+    focusRow(key);
+  }
+
+  async function onAssignFile() {
+    const key = uploadTarget;
+    uploadTarget = null;
+    const file = assignFile.files?.[0];
+    const row = key ? findRow(key) : null;
+    if (!file || !row) {
+      // The picker was cancelled: put the dropdown back to what it was.
+      renderChats();
+      if (key) focusRow(key);
+      return;
+    }
+    const outcome = await run(async () => {
+      const sound = await stateStore.addSound(file);
+      await applyChoice(stateStore, row, sound.id);
+    }, `Added "${file.name}" for ${row.name}.`);
+    assignFile.value = "";
+    if (outcome.ok) renderAll();
+    else renderChats();
+    focusRow(key);
+  }
+
+  async function onAddByName(event) {
+    event.preventDefault();
+    const name = ruleName.value.trim();
+    const outcome = await run(
+      () => addChatByName(stateStore, state, name, ruleSound.value),
+      `Added "${name}".`
+    );
+    if (outcome.ok) {
+      ruleName.value = "";
+      renderChats();
+      ruleName.focus();
+    }
   }
 
   async function onUpload() {
@@ -521,52 +521,21 @@ export async function mountOptions({
     if (outcome.ok) renderAll();
   }
 
-  function onPickRecent() {
-    const choice = recentChoices(state).find((c) => c.key === recent.value);
-    if (!choice) return;
-    ruleKind.value = choice.kind;
-    ruleName.value = choice.name;
-    linkedChatId = choice.chatId;
-    ruleSound.focus();
-  }
-
-  async function onAddRule(event) {
-    event.preventDefault();
-    const name = ruleName.value.trim();
-    const outcome = await run(
-      () =>
-        stateStore.addRule({
-          kind: ruleKind.value,
-          match: name,
-          chatId: ruleKind.value === "chat" ? linkedChatId : null,
-          ...choiceToAction(ruleSound.value),
-        }),
-      `Added "${name}".`
-    );
-    if (outcome.ok) {
-      ruleName.value = "";
-      linkedChatId = null;
-      renderAll();
-      ruleName.focus();
+  // New chats arrive while this page is open; do not yank a dropdown out from under the user.
+  function onChatsFocusOut() {
+    if (chatsStale) {
+      chatsStale = false;
+      renderChats();
     }
   }
 
-  async function onDeleteRule(id) {
-    const outcome = await run(() => stateStore.deleteRule(id));
-    if (outcome.ok) {
-      renderRules();
-      renderRecent();
-    }
-  }
-
-  // The background worker records new chats while this page is open.
   chrome?.storage?.onChanged?.addListener((changes, area) => {
-    if (area === "local" && changes.recentSenders) {
-      stateStore.load().then((next) => {
-        state = next;
-        renderRecent();
-      });
-    }
+    if (area !== "local" || !changes.recentSenders) return;
+    stateStore.load().then((next) => {
+      state = next;
+      if (chatList.contains(document.activeElement)) chatsStale = true;
+      else renderChats();
+    });
   });
 
   renderAll();

@@ -1,32 +1,28 @@
-import { normalizeName } from "../core/normalize.mjs";
+import { addChatByName, applyChoice } from "./chat-actions.mjs";
 import { fillSelect, h } from "./dom.mjs";
 import { icon } from "./icons.mjs";
 import { STRINGS as S, errorMessage } from "./strings.mjs";
 import {
   CHOICE_DEFAULT,
-  buildRuleRows,
+  CHOICE_UPLOAD,
+  buildChatRows,
   buildSoundRows,
-  choiceToAction,
   defaultSoundHint,
-  recentChoices,
   soundChoices,
 } from "./view-model.mjs";
 
-const RECENT_LIMIT = 5;
-
 /**
- * The toolbar popup: everything you need day to day without leaving the page. Default sound and
- * volume, a sound for each chat, adding a chat by name, and one-tap sounds for chats that just
- * messaged you. Uploading sounds lives on the settings page (a file picker can close a popup).
+ * The toolbar popup: your chats, each with one dropdown to pick its sound. Uploading a new sound
+ * opens the settings page, because browsers close a popup as soon as a file dialog opens.
  */
 export async function mountPopup({ document, stateStore, chrome }) {
   const el = (tag, props, ...kids) => h(document, tag, props, ...kids);
   const win = document.defaultView;
   const percent = (value) => `${Math.round(Number(value) * 100)}%`;
-  const defaultHint = el("p", { class: "hint", id: "defaultHint" });
 
   let state = await stateStore.load();
   let toastTimer = null;
+  let chatsStale = false;
 
   // ---------------------------------------------------------------- controls
 
@@ -41,6 +37,7 @@ export async function mountPopup({ document, stateStore, chrome }) {
     class: "select",
     onChange: onDefaultSound,
   });
+  const defaultHint = el("p", { class: "hint", id: "defaultHint" });
   const volume = el("input", {
     id: "volume",
     type: "range",
@@ -65,8 +62,8 @@ export async function mountPopup({ document, stateStore, chrome }) {
     S.popupNeedSound
   );
 
-  const rulesList = el("ul", { id: "rulesList", class: "chat-list" });
-  const rulesEmpty = el("p", { class: "empty", id: "rulesEmpty" }, S.popupChatsEmpty);
+  const chatList = el("ul", { id: "chatList", class: "chat-list", onFocusout: onChatsFocusOut });
+  const chatsEmpty = el("p", { class: "empty", id: "chatsEmpty" }, S.chatsEmpty);
 
   const quickName = el("input", {
     id: "quickName",
@@ -74,24 +71,18 @@ export async function mountPopup({ document, stateStore, chrome }) {
     type: "text",
     maxlength: 200,
     autocomplete: "off",
-    list: "quickRecents",
     placeholder: S.popupNamePlaceholder,
   });
-  const quickRecents = el("datalist", { id: "quickRecents" });
   const quickSound = el("select", { id: "quickSound", class: "select" });
   const quickAdd = el(
     "form",
     { id: "quickAdd", class: "quick-add", onSubmit: onAdd },
     el("label", { class: "visually-hidden", for: "quickName" }, S.nameLabel),
     quickName,
-    quickRecents,
     el("label", { class: "visually-hidden", for: "quickSound" }, S.soundLabel),
     quickSound,
     el("button", { class: "btn btn-primary", type: "submit" }, icon(document, "plus"), S.addRule)
   );
-
-  const recentList = el("ul", { id: "recentList", class: "chat-list" });
-  const recentEmpty = el("p", { class: "empty", id: "recentEmpty" }, S.popupRecentEmpty);
 
   const page = el(
     "div",
@@ -132,15 +123,8 @@ export async function mountPopup({ document, stateStore, chrome }) {
       ),
       defaultHint
     ),
-    el("section", { class: "block" }, el("h2", {}, S.popupChatsTitle), rulesList, rulesEmpty),
-    el(
-      "section",
-      { class: "block" },
-      el("h2", {}, S.popupAddTitle),
-      quickAdd,
-      el("p", { class: "hint" }, S.popupAddHint)
-    ),
-    el("section", { class: "block" }, el("h2", {}, S.popupRecent), recentList, recentEmpty),
+    el("section", { class: "block" }, el("h2", {}, S.chatsTitle), chatList, chatsEmpty),
+    el("details", { class: "add-by-name" }, el("summary", {}, S.addByName), quickAdd),
     el(
       "button",
       {
@@ -165,79 +149,30 @@ export async function mountPopup({ document, stateStore, chrome }) {
     toastTimer = win.setTimeout(() => (message.hidden = true), 3500);
   }
 
-  function chatRow({ key, name, meta, controls }) {
+  function chatRow(row) {
+    const select = el("select", {
+      class: "select chat-sound",
+      "aria-label": `${S.soundLabel}: ${row.name}`,
+      onChange: (event) => onChatChoice(row.key, event.target),
+    });
+    fillSelect(document, select, soundChoices(state.sounds, { allowUpload: true }), row.choice);
     return el(
       "li",
-      { dataset: { key }, class: controls.length > 1 ? "has-delete" : "" },
+      { dataset: { key: row.key }, class: row.hasRule ? "is-set" : "" },
       el(
         "div",
         { class: "chat-name" },
-        el("span", { class: "name" }, name),
-        el("span", { class: "meta" }, meta)
+        el("span", { class: "name" }, row.name),
+        el("span", { class: "meta" }, row.kindLabel)
       ),
-      ...controls
+      select
     );
   }
 
-  function renderRules() {
-    const rows = buildRuleRows(state);
-    rulesEmpty.hidden = rows.length > 0;
-    rulesList.replaceChildren(
-      ...rows.map((row) => {
-        const select = el("select", {
-          class: "select",
-          "aria-label": `${S.soundLabel}: ${row.label}`,
-          onChange: (event) => changeRule(row.id, event.target.value),
-        });
-        fillSelect(document, select, soundChoices(state.sounds), row.choice);
-        const remove = el(
-          "button",
-          {
-            class: "icon-btn danger delete-rule",
-            type: "button",
-            "aria-label": `${S.delete} ${row.label}`,
-            title: S.delete,
-            onClick: () => removeRule(row.id),
-          },
-          icon(document, "trash")
-        );
-        return chatRow({
-          key: row.id,
-          name: row.label,
-          meta: row.kindLabel,
-          controls: [select, remove],
-        });
-      })
-    );
-  }
-
-  function renderRecent() {
-    const choices = recentChoices(state, RECENT_LIMIT);
-    recentEmpty.hidden = choices.length > 0;
-    recentList.replaceChildren(
-      ...choices.map((choice) => {
-        const select = el("select", {
-          class: "select",
-          "aria-label": `${S.soundLabel}: ${choice.name}`,
-          onChange: (event) => assignRecent(choice, event.target.value),
-        });
-        fillSelect(
-          document,
-          select,
-          [{ value: "", label: S.chooseSound }, ...soundChoices(state.sounds)],
-          ""
-        );
-        return chatRow({
-          key: choice.key,
-          name: choice.name,
-          meta: choice.kindLabel,
-          controls: [select],
-        });
-      })
-    );
-    quickRecents.replaceChildren(
-      ...recentChoices(state).map((choice) => el("option", { value: choice.name }))
-    );
+  function renderChats() {
+    const rows = buildChatRows(state);
+    chatsEmpty.hidden = rows.length > 0;
+    chatList.replaceChildren(...rows.map(chatRow));
   }
 
   function render() {
@@ -261,9 +196,7 @@ export async function mountPopup({ document, stateStore, chrome }) {
       soundChoices(state.sounds),
       quickSound.value || CHOICE_DEFAULT
     );
-
-    renderRules();
-    renderRecent();
+    renderChats();
   }
 
   // ---------------------------------------------------------------- actions
@@ -283,6 +216,11 @@ export async function mountPopup({ document, stateStore, chrome }) {
     return ok;
   }
 
+  function focusRow(key) {
+    const item = [...chatList.children].find((li) => li.dataset.key === key);
+    item?.querySelector("select")?.focus();
+  }
+
   function onEnabled() {
     save(() => stateStore.setSettings({ enabled: enabled.checked }));
   }
@@ -295,47 +233,23 @@ export async function mountPopup({ document, stateStore, chrome }) {
     save(() => stateStore.setSettings({ defaultSoundId: defaultSound.value || null }));
   }
 
-  function changeRule(id, choice) {
-    save(() => stateStore.updateRule(id, choiceToAction(choice)), S.saved);
-  }
-
-  function removeRule(id) {
-    save(() => stateStore.deleteRule(id));
-  }
-
-  function assignRecent(choice, value) {
-    if (!value) return; // the "Choose a sound…" placeholder
-    save(
-      () =>
-        stateStore.addRule({
-          kind: choice.kind,
-          match: choice.name,
-          chatId: choice.kind === "chat" ? choice.chatId : null,
-          ...choiceToAction(value),
-        }),
-      S.saved
-    );
-  }
-
-  /** Typing a name that matches a recent chat binds the rule to that chat's id. */
-  function lookupRecent(name) {
-    const wanted = normalizeName(name);
-    const seen = state.recentSenders.filter((s) => normalizeName(s.name) === wanted);
-    return seen.find((s) => s.kind === "chat") ?? seen[0] ?? null;
+  async function onChatChoice(key, select) {
+    const row = buildChatRows(state).find((r) => r.key === key);
+    if (!row) return;
+    if (select.value === CHOICE_UPLOAD) {
+      renderChats(); // put the dropdown back; the upload happens on the settings page
+      openSettings();
+      return;
+    }
+    await save(() => applyChoice(stateStore, row, select.value));
+    focusRow(key);
   }
 
   async function onAdd(event) {
     event.preventDefault();
     const name = quickName.value.trim();
-    const known = lookupRecent(name);
     const ok = await save(
-      () =>
-        stateStore.addRule({
-          kind: known?.kind ?? "chat",
-          match: name,
-          chatId: known?.kind === "chat" ? (known.chatId ?? null) : null,
-          ...choiceToAction(quickSound.value),
-        }),
+      () => addChatByName(stateStore, state, name, quickSound.value),
       `Added "${name}".`
     );
     if (ok) quickName.value = "";
@@ -346,13 +260,21 @@ export async function mountPopup({ document, stateStore, chrome }) {
     win.close?.();
   }
 
-  chrome?.storage?.onChanged?.addListener((changes, area) => {
-    if (area === "local" && changes.recentSenders) {
-      stateStore.load().then((next) => {
-        state = next;
-        renderRecent();
-      });
+  // New chats arrive while the popup is open; do not yank a dropdown out from under the user.
+  function onChatsFocusOut() {
+    if (chatsStale) {
+      chatsStale = false;
+      renderChats();
     }
+  }
+
+  chrome?.storage?.onChanged?.addListener((changes, area) => {
+    if (area !== "local" || !changes.recentSenders) return;
+    stateStore.load().then((next) => {
+      state = next;
+      if (chatList.contains(document.activeElement)) chatsStale = true;
+      else renderChats();
+    });
   });
 
   render();

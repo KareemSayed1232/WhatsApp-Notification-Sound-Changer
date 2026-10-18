@@ -243,6 +243,55 @@ input[type="range"] {
   border-color: transparent;
 }
 
+/* ---------- chat list: one row per chat, one dropdown per row */
+
+.chat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.chat-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 230px);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+/* Chats that already have a sound of their own stand out from the rest. */
+.chat-list li.is-set {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.chat-name {
+  display: grid;
+  min-width: 0;
+}
+.chat-name .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+details.add-by-name {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+details.add-by-name summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--accent);
+}
+details.add-by-name[open] summary {
+  margin-bottom: 10px;
+}
+
 /* ---------- switch */
 
 .switch {
