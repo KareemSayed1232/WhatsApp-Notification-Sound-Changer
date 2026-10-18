@@ -12,7 +12,7 @@ const PANE_SELECTORS = [
 ];
 // Observed on WhatsApp Web (Oct 2026): rows carry data-testid="cell-frame-container" and sit in a
 // role="grid" list; older builds used role="listitem". Accept any of them.
-const ROW_SELECTOR = '[role="row"], [role="listitem"], [data-testid="cell-frame-container"]';
+export const ROW_SELECTOR = '[role="row"], [role="listitem"], [data-testid="cell-frame-container"]';
 // Pseudo-rows built from the same markup but which are not chats.
 const NOT_A_CHAT = /locked chats|archived/i;
 const TITLE_SELECTORS = [
@@ -39,7 +39,7 @@ function scrollerFor(pane) {
   return pane;
 }
 
-function isNotAChat(row) {
+export function isNotAChat(row) {
   const button = row.closest("button");
   // Language-independent: real chats sit in a list row; the "Archived" and "Locked chats"
   // entries are plain buttons outside any row (captured Oct 2026).
@@ -86,13 +86,14 @@ export function readChatNames(root) {
 
 // The unread counter on a chat row (captured Oct 2026: <span data-testid="icon-unread-count"
 // aria-label="2 unread messages">2</span>). The label is a fallback; it is in the UI language.
-const UNREAD_SELECTOR = '[data-testid="icon-unread-count"]';
-const UNREAD_LABEL = /\bunread\b/i;
+export const UNREAD_SELECTOR = '[data-testid="icon-unread-count"]';
+export const UNREAD_LABEL = /\bunread\b/i;
 // A muted chat's row carries <… data-testid="mute-notifications-refreshed" aria-label="Muted chat">
 // (captured Oct 2026). Any test id or icon mentioning "mute" counts, so a renamed marker still
 // does; the English label is a last fallback.
-const MUTED_SELECTOR =
-  '[data-testid*="mute" i], [data-icon*="mute" i], [aria-label="Muted chat" i]';
+export const MUTED_MARKER = '[data-testid*="mute" i], [data-icon*="mute" i]';
+export const MUTED_LABEL = '[aria-label="Muted chat" i]';
+const MUTED_SELECTOR = `${MUTED_MARKER}, ${MUTED_LABEL}`;
 
 function unreadCountOf(row) {
   const badge =
@@ -139,14 +140,21 @@ const sleep = (ms) => new Promise((resolve) => globalThis.setTimeout(resolve, ms
  * Scroll through the whole list, collect names at each step, then put the scroll position back.
  * Resolves { ok, reason?, names }.
  */
-export async function scanChatList({ document, wait = sleep, maxSteps = 400 }) {
-  const chatPane = findChatPane(document);
+export async function scanChatList({
+  document,
+  wait = sleep,
+  maxSteps = 400,
+  // The content script passes its self-teaching page model (page-model.mjs) for these.
+  readNames = () => readChatNames(document),
+  findPane = () => findChatPane(document),
+}) {
+  const chatPane = findPane();
   if (!chatPane) return { ok: false, reason: "no-chat-list", names: [] };
   const pane = scrollerFor(chatPane);
 
   const found = new Map(); // normalized name -> display name, in first-seen order
   const collect = () => {
-    for (const name of readChatNames(document)) {
+    for (const name of readNames()) {
       const key = normalizeName(name);
       if (!found.has(key)) found.set(key, name);
     }

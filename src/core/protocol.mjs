@@ -28,6 +28,8 @@ export const MSG_CHATS = "wansc:chats";
 export const MSG_SCAN = "wansc:scan-chats";
 // Content script -> background: WhatsApp gave a chat a new kind of id; move the rule onto it.
 export const MSG_REBIND = "wansc:rebind-rule";
+// chrome.storage.local key for what the content script learned about WhatsApp's page.
+export const PAGE_MODEL_KEY = "pageModel";
 
 // WhatsApp plays its message sound ~2-26 ms after raising the notification (measured, Oct 2026).
 // The window is deliberately generous so a slow machine still pairs them.

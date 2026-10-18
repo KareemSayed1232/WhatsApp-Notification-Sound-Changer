@@ -18,6 +18,7 @@ import {
   MSG_GET_SOUND,
   MSG_REBIND,
   MSG_SEEN,
+  PAGE_MODEL_KEY,
 } from "../core/protocol.mjs";
 import { readState } from "../core/state-store.mjs";
 
@@ -60,9 +61,15 @@ export function startBridge({
   engine,
   CustomEventCtor = document.defaultView.CustomEvent,
   log = () => {},
+  // Told { title, tag } for every notification WhatsApp raises (never the message), so the
+  // content script can learn the page and which chats are muted.
+  onNotification = () => {},
 }) {
   let state = null;
   let lastWhatsAppActivityAt = -Infinity;
+  // The chat id last seen with each chat name, and every name seen this session.
+  const lastIdForName = new Map();
+  const titlesSeen = new Set();
   const incomingTimers = new Set();
   let queuedSignals = [];
   let flushTimer = null;
@@ -181,6 +188,7 @@ export function startBridge({
         };
         reportSeen(notification);
         record({ type: "notification", tag: notification.tag });
+        noteNotification(notification);
         const decision = playable(decidePlayback({ notification, rules, sounds, settings }));
         const rebind = findRebind(notification, rules);
         if (rebind) send({ type: MSG_REBIND, ...rebind });
@@ -245,7 +253,8 @@ export function startBridge({
       if (stopped || !state || isOrphaned()) return;
       if (Math.abs(lastWhatsAppActivityAt - seenAt) < WHATSAPP_ACTIVITY_MS) return; // handled
       const { settings, rules, sounds } = state;
-      const decision = decideForChatName({ name, rules, sounds, settings });
+      const preferChatId = lastIdForName.get(normalizeName(name)) ?? null;
+      const decision = decideForChatName({ name, rules, sounds, settings, preferChatId });
       log("new message in", name, "while focused, no sound from WhatsApp ->", decision);
       if (decision.action !== "play") return;
       if (typeof engine.canPlay === "function" && !engine.canPlay()) {
@@ -262,7 +271,8 @@ export function startBridge({
 
   function onStorageChanged(changes, area) {
     if (area !== "local") return;
-    if (Object.keys(changes).every((key) => key === HEALTH_KEY)) return; // our own status writes
+    // Our own status and learning writes do not change any rule.
+    if (Object.keys(changes).every((key) => key === HEALTH_KEY || key === PAGE_MODEL_KEY)) return;
     if (changes.sounds) engine.invalidate();
     refresh();
   }
@@ -302,5 +312,30 @@ export function startBridge({
   }, HOOK_CHECK_MS);
   checkTimer?.unref?.();
 
-  return { ready: refresh(), stop, onIncomingChat };
+  function noteNotification({ title, tag }) {
+    const name = cleanDisplayName(title);
+    if (!name) return;
+    titlesSeen.add(name);
+    if (tag) lastIdForName.set(normalizeName(name), tag);
+    try {
+      onNotification({ title: name, tag });
+    } catch {
+      // Learning must never disturb the sound.
+    }
+  }
+
+  /** Every chat name the extension knows: rules, saved chats, recent chats, this session. */
+  function knownChatNames() {
+    const names = new Set(titlesSeen);
+    for (const rule of state?.rules ?? []) {
+      if (rule?.kind === "chat" && typeof rule.match === "string") names.add(rule.match);
+    }
+    for (const chat of state?.knownChats ?? []) if (chat?.name) names.add(chat.name);
+    for (const sender of state?.recentSenders ?? []) {
+      if (sender?.kind === "chat" && sender.name) names.add(sender.name);
+    }
+    return [...names];
+  }
+
+  return { ready: refresh(), stop, onIncomingChat, knownChatNames };
 }

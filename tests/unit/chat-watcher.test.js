@@ -125,7 +125,7 @@ describe("an explicit scan request", () => {
 
     const response = await request();
 
-    expect(scan).toHaveBeenCalledWith({ document });
+    expect(scan).toHaveBeenCalledWith(expect.objectContaining({ document }));
     expect(response).toEqual({ ok: true, reason: undefined, count: 3 });
     expect(sentNames()).toEqual(["Radwa", "Family", "Mom"]);
   });

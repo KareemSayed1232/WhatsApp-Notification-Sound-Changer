@@ -17,6 +17,9 @@ export function startChatWatcher({
   setTimeoutFn = (fn, ms) => globalThis.setTimeout(fn, ms),
   clearTimeoutFn = (id) => globalThis.clearTimeout(id),
   scan = (options) => scanChatList(options),
+  // The content script passes its self-teaching page model (page-model.mjs) for these.
+  readNames = () => readChatNames(document),
+  findPane = () => findChatPane(document),
 }) {
   const sent = new Set();
   let timer = null;
@@ -58,7 +61,7 @@ export function startChatWatcher({
     timer = null;
     if (stopped) return;
     if (isOrphaned()) return stop();
-    reportNew(readChatNames(document));
+    reportNew(readNames());
   }
 
   function schedule() {
@@ -68,7 +71,7 @@ export function startChatWatcher({
 
   /** Start watching the chat list once WhatsApp has rendered it. */
   function attach() {
-    const pane = findChatPane(document);
+    const pane = findPane();
     if (!pane) return false;
     bootObserver?.disconnect();
     paneObserver = new MutationObserverCtor(schedule);
@@ -79,7 +82,7 @@ export function startChatWatcher({
 
   function onMessage(message, sender, sendResponse) {
     if (message?.type !== MSG_SCAN || sender?.id !== chrome.runtime.id) return false;
-    Promise.resolve(scan({ document })).then(
+    Promise.resolve(scan({ document, readNames, findPane })).then(
       (result) => {
         for (const name of result.names) sent.add(normalizeName(name));
         if (result.names.length > 0) send(result.names);

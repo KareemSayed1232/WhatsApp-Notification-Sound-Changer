@@ -70,6 +70,31 @@ export function findRule(notification, rules) {
 }
 
 /**
+ * The decision for a chat known only by its name (a new message seen in the chat list, with no
+ * notification and so no chat id). Chat rules tied to an id match by name here. When two chats
+ * share the name, `preferChatId` (the id last seen with that name) picks which one.
+ */
+export function decideForChatName({ name, rules, sounds, settings, preferChatId = null }) {
+  const key = normalizeName(name);
+  const list = Array.isArray(rules) ? rules : [];
+  const sameName = (rule) =>
+    rule?.kind === "chat" && rule.chatId && normalizeName(rule.match) === key;
+  const preferred =
+    preferChatId && list.some((rule) => sameName(rule) && rule.chatId === preferChatId);
+  const byName = list.map((rule) =>
+    sameName(rule) && (!preferred || rule.chatId === preferChatId)
+      ? { ...rule, chatId: null }
+      : rule
+  );
+  return decidePlayback({
+    notification: { title: name, tag: "" },
+    rules: byName,
+    sounds,
+    settings,
+  });
+}
+
+/**
  * When the rule for this notification was found through a migrated id, the rule should move onto
  * the new id: `{ ruleId, chatId }`. Otherwise null.
  */
@@ -88,25 +113,6 @@ export function findRebind(notification, rules) {
  *  - { action: "silent", ruleId }       suppress every sound
  *  - { action: "play", soundId, volume, ruleId }
  */
-/**
- * The decision for a chat known only by its name (a new message seen in the chat list, with no
- * notification and so no chat id). Chat rules tied to an id match by name here.
- */
-export function decideForChatName({ name, rules, sounds, settings }) {
-  const key = normalizeName(name);
-  const byName = (Array.isArray(rules) ? rules : []).map((rule) =>
-    rule?.kind === "chat" && rule.chatId && normalizeName(rule.match) === key
-      ? { ...rule, chatId: null }
-      : rule
-  );
-  return decidePlayback({
-    notification: { title: name, tag: "" },
-    rules: byName,
-    sounds,
-    settings,
-  });
-}
-
 export function decidePlayback({ notification, rules, sounds, settings }) {
   const config = { ...defaultSettings(), ...settings };
   if (config.enabled === false) return { action: "native" };
