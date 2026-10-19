@@ -181,7 +181,7 @@ describe("reporting seen chats", () => {
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
       type: MSG_SEEN,
       items: [
-        { name: "asd", kind: "chat", chatId: "120@g.us" },
+        { name: "asd", kind: "chat", chatId: "120@g.us", group: true },
         { name: "\u{1F606}", kind: "sender" },
       ],
     });

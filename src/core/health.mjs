@@ -5,6 +5,8 @@
 export const HEALTH_KEY = "health";
 // This many notifications in a row without WhatsApp playing any sound is treated as a problem.
 export const SILENT_RUN_ATTENTION = 3;
+// This many group messages in a row without a "Sender:" part mean WhatsApp changed that format.
+export const SENDER_MISS_ATTENTION = 5;
 
 const TAG_KINDS = ["none", "group", "lid", "phone", "broadcast", "newsletter", "other"];
 const SOUND_EXTENSIONS = ["mp3", "ogg", "oga", "opus", "m4a", "aac", "wav", "webm"];
@@ -29,6 +31,10 @@ export function emptyHealth() {
     // Our sound could not play (browser blocking audio, or a sound that failed to decode) since
     // the last one that did.
     failedRun: 0,
+    // Notification titles stopped naming the chat (one title for many chats).
+    titlesGeneric: false,
+    // Group messages in a row without a "Sender: text" part.
+    senderMissRun: 0,
     hook: { state: "unknown", checkedAt: 0 },
     shapes: { tags: [], sound: null },
   };
@@ -57,6 +63,8 @@ export function sanitizeHealth(raw) {
     silentRun: count(raw.silentRun),
     unnamedRun: count(raw.unnamedRun),
     failedRun: count(raw.failedRun),
+    titlesGeneric: raw.titlesGeneric === true,
+    senderMissRun: count(raw.senderMissRun),
     hook: {
       state: HOOK_STATES.includes(raw.hook?.state) ? raw.hook.state : "unknown",
       checkedAt: count(raw.hook?.checkedAt),
@@ -146,6 +154,12 @@ export function applySignal(health, signal, now) {
     case "played":
       next.failedRun = 0;
       break;
+    case "titles":
+      next.titlesGeneric = signal.generic === true;
+      break;
+    case "group-sender":
+      next.senderMissRun = signal.ok === true ? 0 : next.senderMissRun + 1;
+      break;
     case "silent": // a notification with no sound after it
       next.lastSilentAt = now;
       next.silentRun += 1;
@@ -169,6 +183,8 @@ export function healthStatus(health) {
   if (h.hook.state === "overwritten") return { code: "hook-overwritten", level: "bad" };
   if (h.failedRun > 0) return { code: "play-failed", level: "warn" };
   if (h.unnamedRun >= SILENT_RUN_ATTENTION) return { code: "no-chat-info", level: "warn" };
+  if (h.titlesGeneric) return { code: "titles-generic", level: "warn" };
+  if (h.senderMissRun >= SENDER_MISS_ATTENTION) return { code: "sender-format", level: "warn" };
   if (h.silentRun >= SILENT_RUN_ATTENTION) return { code: "no-sound", level: "warn" };
   if (h.lastPairedAt > 0) return { code: "working", level: "ok", at: h.lastPairedAt };
   return { code: "waiting", level: "idle" };
@@ -191,6 +207,10 @@ export function buildDiagnostics({ version, userAgent, health, state, now }) {
       notificationsWithoutSoundInARow: h.silentRun,
       backgroundSoundsWithoutChatInARow: h.unnamedRun,
       ourSoundFailedInARow: h.failedRun,
+      groupMessagesWithoutSenderInARow: h.senderMissRun,
+    },
+    whatsappShapesChanged: {
+      notificationTitlesAreNotChatNames: h.titlesGeneric,
     },
     secondsSince: {
       notification: ago(h.lastNotificationAt),

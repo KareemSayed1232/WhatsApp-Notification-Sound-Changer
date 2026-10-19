@@ -84,12 +84,18 @@ export const STRINGS = {
 
   healthTitle: "Is it working?",
   justNow: "just now",
+  lastMessage: "last message",
+  noMessageYet: "no message yet",
   healthWaiting: "Waiting for a message. Ask someone to message you to check it works.",
   healthWorking: "Working. Last handled a message",
   healthNoSound:
     "WhatsApp keeps notifying us but plays no sound. Either WhatsApp's own sounds are turned off, or WhatsApp changed something. If you hear no sound of yours, copy the diagnostics in settings.",
   healthPlayFailed:
     "Your sound couldn't play last time: the browser blocks sound until you click once in the WhatsApp tab. Click anywhere in WhatsApp to fix it. WhatsApp's own sound was used where possible.",
+  healthTitlesGeneric:
+    "WhatsApp's notifications no longer say which chat a message is from, so only sounds tied to a chat (picked from your chat list) can play. WhatsApp may have changed. Copy the diagnostics in settings.",
+  healthSenderFormat:
+    "WhatsApp changed how group messages name their sender, so sounds for people in groups may not play. Copy the diagnostics in settings.",
   healthNoChatInfo:
     "Messages are arriving, but WhatsApp isn't saying which chat they're from, so only your default sound can play. WhatsApp may have changed. Copy the diagnostics in settings.",
   healthHookMissing:

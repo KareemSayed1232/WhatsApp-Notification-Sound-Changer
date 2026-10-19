@@ -5,6 +5,7 @@ import {
   findRebind,
   parseSenderFromBody,
 } from "../core/matcher.mjs";
+import { createChatIdentity } from "../core/chat-identity.mjs";
 import { HEALTH_KEY, applySignal, classifyTag } from "../core/health.mjs";
 import { cleanDisplayName, normalizeName } from "../core/normalize.mjs";
 import {
@@ -84,7 +85,18 @@ export function startBridge({
   const lastIdForName = new Map();
   const titlesSeen = new Set();
   const incomingTimers = new Set();
-  let held = null; // WhatsApp's focused-mode sound, held back until the chat is known
+  let held = null;
+  let identity = null;
+  /** Groups, generic titles and missing senders, judged by behaviour (chat-identity.mjs). */
+  function chatIdentity() {
+    if (!identity) {
+      const groups = (state?.recentSenders ?? [])
+        .filter((s) => s?.group === true && typeof s.chatId === "string")
+        .map((s) => s.chatId);
+      identity = createChatIdentity({ groups });
+    }
+    return identity;
+  } // WhatsApp's focused-mode sound, held back until the chat is known
   let queuedSignals = [];
   let flushTimer = null;
   let checkTimer = null;
@@ -148,14 +160,22 @@ export function startBridge({
   }
 
   /** Tell the background which chats we saw, so the options page can offer them. Names only. */
-  function reportSeen({ title, tag, body }) {
+  function reportSeen({ title, tag, body }, seen) {
     const items = [];
     const name = cleanDisplayName(title);
-    if (name) items.push({ name, kind: "chat", ...(tag ? { chatId: tag } : {}) });
+    // A title shared by many chats is not a chat's name: do not record it as one.
+    if (name && !seen.titlesGeneric) {
+      items.push({
+        name,
+        kind: "chat",
+        ...(tag ? { chatId: tag } : {}),
+        ...(seen.isGroup ? { group: true } : {}),
+      });
+    }
     // Groups put "Sender: text" in the body. One-to-one chats never do ("Note: ..." is just a
-    // message), so only known 1:1 ids are excluded: a group id format WhatsApp introduces later
-    // still has its senders collected.
-    if (!ONE_TO_ONE.includes(classifyTag(tag))) {
+    // message), so only known 1:1 ids are excluded, unless the chat was recognised as a group by
+    // its behaviour: a group id format WhatsApp introduces later still has its senders collected.
+    if (seen.isGroup || !ONE_TO_ONE.includes(classifyTag(tag))) {
       const sender = cleanDisplayName(parseSenderFromBody(body));
       if (sender && normalizeName(sender) !== normalizeName(name)) {
         items.push({ name: sender, kind: "sender" });
@@ -200,11 +220,16 @@ export function startBridge({
           tag: text(question.tag),
           body: text(question.body),
         };
-        reportSeen(notification);
+        const seen = chatIdentity().observe(notification);
+        reportSeen(notification, seen);
         record({ type: "notification", tag: notification.tag });
-        noteNotification(notification);
+        record({ type: "titles", generic: seen.titlesGeneric });
+        if (seen.isGroup) record({ type: "group-sender", ok: Boolean(seen.sender) });
+        // With generic titles a notification no longer says which chat it is: learn nothing
+        // from it (it would teach wrong names and make every chat look muted).
+        if (!seen.titlesGeneric) noteNotification(notification);
         const decision = playable(decidePlayback({ notification, rules, sounds, settings }));
-        const rebind = findRebind(notification, rules);
+        const rebind = seen.titlesGeneric ? null : findRebind(notification, rules);
         if (rebind) send({ type: MSG_REBIND, ...rebind });
         log("decision for chat", notification.tag || notification.title, "->", decision);
         return { mode: "managed", decision, showPopup: settings.showPopups };

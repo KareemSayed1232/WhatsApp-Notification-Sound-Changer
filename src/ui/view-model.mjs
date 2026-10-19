@@ -4,6 +4,19 @@ import { STRINGS as S } from "./strings.mjs";
 export const CHOICE_DEFAULT = "__default";
 export const CHOICE_SILENT = "__silent";
 
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** "just now", "5 minutes ago", "2 hours ago", "3 days ago". */
+export function formatAgo(ms) {
+  const plural = (n, unit) => `${n} ${unit}${n === 1 ? "" : "s"} ago`;
+  if (ms < MINUTE) return S.justNow;
+  if (ms < HOUR) return plural(Math.floor(ms / MINUTE), "minute");
+  if (ms < DAY) return plural(Math.floor(ms / HOUR), "hour");
+  return plural(Math.floor(ms / DAY), "day");
+}
+
 export function formatBytes(bytes) {
   if (!(bytes > 0)) return "0 KB";
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -74,9 +87,9 @@ export function ruleFor(entry, rules) {
   );
 }
 
-/** "Group" when any id is a group, "Chat" for known 1:1 ids, and honest about not knowing. */
-function chatRowLabel(ids) {
-  if (ids.some((id) => id.endsWith("@g.us"))) return "Group";
+/** "Group" when the chat is known to be one (by behaviour or by its id), "Chat" otherwise. */
+function chatRowLabel(ids, isGroup) {
+  if (isGroup || ids.some((id) => id.endsWith("@g.us"))) return "Group";
   return ids.length > 0 ? "Chat" : "Chat or group";
 }
 
@@ -98,6 +111,79 @@ function toRow({ key, name, kind, kindText, targets, rules, sounds, lastSeen }) 
   };
 }
 
+// A phone-number chat id. WhatsApp moved contacts from these to "@lid" ids, so the same person can
+// appear under both: they are one chat, not two.
+const PHONE_ID = /@(c.us|s.whatsapp.net)$/;
+
+/**
+ * The real chats behind one name: each group is its own chat, and so is each person, except that
+ * a person's old phone-number id joins their newest id (the same contact, migrated). Returns a list
+ * of id lists; one entry means the name is a single chat.
+ */
+function chatsUnder(g) {
+  const isGroupId = (id) => id.endsWith("@g.us") || g.idSeen.get(id)?.group === true;
+  const seenAt = (id) => g.idSeen.get(id)?.lastSeen ?? 0;
+  const groupIds = g.ids.filter(isGroupId);
+  const people = g.ids.filter((id) => !isGroupId(id));
+  const current = people.filter((id) => !PHONE_ID.test(id));
+  const phone = people.filter((id) => PHONE_ID.test(id));
+  let personChats;
+  if (current.length === 0) {
+    personChats = phone.map((id) => [id]);
+  } else {
+    personChats = current.map((id) => [id]);
+    const newest = personChats.reduce((a, b) => (seenAt(b[0]) > seenAt(a[0]) ? b : a));
+    newest.push(...phone);
+  }
+  return [...groupIds.map((id) => [id]), ...personChats];
+}
+
+function lastMessageText(lastSeen, now) {
+  return lastSeen > 0
+    ? `${S.lastMessage} ${formatAgo(Math.max(0, now - lastSeen))}`
+    : S.noMessageYet;
+}
+
+/**
+ * Several chats share this name: one row each, newest first, told apart by when each last
+ * messaged. A sound set earlier for the NAME (no chat id) still shows in every row until that
+ * chat gets its own; `siblings` and `sharedRuleIds` let a choice in one row leave the others
+ * alone (see applyChoice).
+ */
+function splitRows(g, clusters, sounds, now) {
+  const nameRules = g.rules.filter((rule) => !rule.chatId);
+  const chats = clusters
+    .map((ids) => {
+      const idRules = g.rules.filter((rule) => rule.chatId && ids.includes(rule.chatId));
+      return {
+        ids,
+        idRules,
+        isGroup: ids.some((id) => id.endsWith("@g.us") || g.idSeen.get(id)?.group === true),
+        lastSeen: Math.max(0, ...ids.map((id) => g.idSeen.get(id)?.lastSeen ?? 0)),
+        targets: ids.map((id) => ({
+          chatId: id,
+          ruleId: idRules.find((rule) => rule.chatId === id)?.id ?? null,
+        })),
+      };
+    })
+    .sort((a, b) => b.lastSeen - a.lastSeen);
+
+  return chats.map((chat) => ({
+    ...toRow({
+      key: `chat|${g.key}|${chat.ids[0]}`,
+      name: g.name,
+      kind: "chat",
+      kindText: `${chatRowLabel(chat.ids, chat.isGroup)} · ${lastMessageText(chat.lastSeen, now)}`,
+      targets: chat.targets,
+      rules: chat.idRules.length > 0 ? chat.idRules : nameRules,
+      sounds,
+      lastSeen: chat.lastSeen,
+    }),
+    siblings: chats.filter((other) => other !== chat).flatMap((other) => other.targets),
+    sharedRuleIds: nameRules.map((rule) => rule.id),
+  }));
+}
+
 /**
  * One row per chat NAME. A contact can reach us under several identities (more than one chat id,
  * or also as a person inside a group), so everything with the same name is merged into one row.
@@ -106,13 +192,22 @@ function toRow({ key, name, kind, kindText, targets, rules, sounds, lastSeen }) 
  * Sources, in display order: chats that messaged us (newest first), chats read from WhatsApp's
  * own chat list, then rules for chats we have not seen (alphabetical).
  */
-export function buildChatRows(state, filterText = "") {
+export function buildChatRows(state, filterText = "", now = Date.now()) {
   const needle = normalizeName(filterText);
   const groups = new Map(); // normalized name -> group
   const group = (name, fromRule = false) => {
     const key = normalizeName(name);
     if (!groups.has(key)) {
-      groups.set(key, { key, name, ids: [], rules: [], lastSeen: 0, fromRule });
+      groups.set(key, {
+        key,
+        name,
+        ids: [],
+        rules: [],
+        lastSeen: 0,
+        fromRule,
+        isGroup: false,
+        idSeen: new Map(), // chat id -> { lastSeen, group }
+      });
     }
     return groups.get(key);
   };
@@ -122,6 +217,14 @@ export function buildChatRows(state, filterText = "") {
     if (entry.kind !== "chat") continue;
     const g = group(entry.name);
     addId(g, entry.chatId);
+    if (entry.group === true) g.isGroup = true;
+    if (entry.chatId) {
+      const before = g.idSeen.get(entry.chatId);
+      g.idSeen.set(entry.chatId, {
+        lastSeen: Math.max(before?.lastSeen ?? 0, entry.lastSeen ?? 0),
+        group: before?.group === true || entry.group === true,
+      });
+    }
     g.lastSeen = Math.max(g.lastSeen, entry.lastSeen ?? 0);
   }
 
@@ -139,7 +242,9 @@ export function buildChatRows(state, filterText = "") {
   const rows = ordered
     .filter((g) => !g.fromRule)
     .concat(ordered.filter((g) => g.fromRule).sort((a, b) => a.name.localeCompare(b.name)))
-    .map((g) => {
+    .flatMap((g) => {
+      const clusters = chatsUnder(g);
+      if (clusters.length > 1) return splitRows(g, clusters, state.sounds, now);
       const targets = g.ids.map((id) => ({
         chatId: id,
         ruleId: g.rules.find((rule) => rule.chatId === id)?.id ?? null,
@@ -152,7 +257,7 @@ export function buildChatRows(state, filterText = "") {
         key: `chat|${g.key}`,
         name: g.name,
         kind: "chat",
-        kindText: chatRowLabel(g.ids),
+        kindText: chatRowLabel(g.ids, g.isGroup),
         targets,
         rules: g.rules,
         sounds: state.sounds,

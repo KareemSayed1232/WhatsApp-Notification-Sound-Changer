@@ -67,7 +67,12 @@ export function startBackground({ chrome, stateStore, soundStore }) {
       for (const item of message.items.slice(0, MAX_SEEN_ITEMS)) {
         if (item && typeof item === "object") {
           stateStore
-            .recordSender({ name: item.name, kind: item.kind, chatId: item.chatId })
+            .recordSender({
+              name: item.name,
+              kind: item.kind,
+              chatId: item.chatId,
+              ...(item.group === true ? { group: true } : {}),
+            })
             .catch(() => {});
         }
       }

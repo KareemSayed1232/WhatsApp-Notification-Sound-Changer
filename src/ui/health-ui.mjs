@@ -1,19 +1,9 @@
 import { HEALTH_KEY, buildDiagnostics, healthStatus } from "../core/health.mjs";
 import { h } from "./dom.mjs";
 import { STRINGS as S } from "./strings.mjs";
+import { formatAgo } from "./view-model.mjs";
 
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-
-/** "just now", "5 minutes ago", "2 hours ago", "3 days ago". */
-export function formatAgo(ms) {
-  const plural = (n, unit) => `${n} ${unit}${n === 1 ? "" : "s"} ago`;
-  if (ms < MINUTE) return S.justNow;
-  if (ms < HOUR) return plural(Math.floor(ms / MINUTE), "minute");
-  if (ms < DAY) return plural(Math.floor(ms / HOUR), "hour");
-  return plural(Math.floor(ms / DAY), "day");
-}
+export { formatAgo };
 
 /** The sentence and colour for the status line. */
 export function healthMessage(health, now) {
@@ -28,6 +18,10 @@ export function healthMessage(health, now) {
       return { level: status.level, text: S.healthNoSound };
     case "play-failed":
       return { level: status.level, text: S.healthPlayFailed };
+    case "titles-generic":
+      return { level: status.level, text: S.healthTitlesGeneric };
+    case "sender-format":
+      return { level: status.level, text: S.healthSenderFormat };
     case "no-chat-info":
       return { level: status.level, text: S.healthNoChatInfo };
     case "hook-missing":

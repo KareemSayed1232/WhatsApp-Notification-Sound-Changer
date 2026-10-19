@@ -247,12 +247,15 @@ export function createStateStore({
       }),
 
     /** Remembers only name, kind and chat id -- never message text. */
-    recordSender: ({ name, kind, chatId }) =>
+    recordSender: ({ name, kind, chatId, group }) =>
       mutate(async (state) => {
         const trimmed = typeof name === "string" ? name.trim() : "";
         if (!trimmed || !RULE_KINDS.includes(kind)) return;
         const entry = { name: trimmed, kind, lastSeen: now() };
         if (kind === "chat" && typeof chatId === "string" && chatId) entry.chatId = chatId;
+        // Once a chat is known to be a group, it stays one.
+        const before = state.recentSenders.find((s) => senderKey(s) === senderKey(entry));
+        if (kind === "chat" && (group === true || before?.group === true)) entry.group = true;
         const others = state.recentSenders.filter((s) => senderKey(s) !== senderKey(entry));
         await storage.set({ recentSenders: [entry, ...others].slice(0, MAX_RECENT_SENDERS) });
       }),

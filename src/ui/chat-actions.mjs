@@ -8,6 +8,28 @@ import { CHOICE_DEFAULT, choiceToAction } from "./view-model.mjs";
  * sound" simply removes the chat's own rules, so there is never a pointless "use the default" rule.
  */
 export async function applyChoice(stateStore, row, choice) {
+  // This row is one of several chats sharing a name, and a sound was set earlier for the NAME:
+  // first give every other chat with that name its own copy of that setting, then drop the
+  // name-wide rule, so this choice changes this chat only.
+  if (row.sharedRuleIds?.length > 0) {
+    const state = await stateStore.load();
+    const shared = state.rules.find((rule) => row.sharedRuleIds.includes(rule.id));
+    if (shared) {
+      for (const sibling of row.siblings ?? []) {
+        if (sibling.chatId && !sibling.ruleId) {
+          await stateStore.addRule({
+            kind: "chat",
+            match: row.name,
+            chatId: sibling.chatId,
+            action: shared.action,
+            soundId: shared.soundId,
+            enabled: true,
+          });
+        }
+      }
+    }
+    for (const ruleId of row.sharedRuleIds) await stateStore.deleteRule(ruleId);
+  }
   if (choice === CHOICE_DEFAULT) {
     for (const ruleId of new Set(row.targets.map((t) => t.ruleId).filter(Boolean))) {
       await stateStore.deleteRule(ruleId);
