@@ -39,6 +39,8 @@ export function startUnreadWatcher({
   isMuted = (name, chat) => chat.muted,
   // Every counter rise, focused or not (used to learn mutes in the background).
   onRise = () => {},
+  // Every read of the list, before any decision (used to notice mute markers come and go).
+  onRead = () => {},
 }) {
   let previous = null;
   let paneObserver = null;
@@ -65,6 +67,7 @@ export function startUnreadWatcher({
     } catch {
       return;
     }
+    safely(() => onRead(current));
     const userBusy = now() - lastUserAt < QUIET_AFTER_USER_MS;
     if (previous && !userBusy) {
       const focused = isFocused();

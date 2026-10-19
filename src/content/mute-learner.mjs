@@ -34,6 +34,7 @@ export function createMuteLearner({
 }) {
   const muted = new Map(Object.entries(sanitizeMuted(initial)));
   const notifiedAt = new Map();
+  const markerSeen = new Map(); // key -> whether the page showed a mute marker last time
   const timers = new Set();
   let stopped = false;
 
@@ -69,6 +70,25 @@ export function createMuteLearner({
         set(key, true);
       }, windowMs + 50);
       timers.add(timer);
+    },
+
+    /**
+     * What the page shows right now. A marker is fresh evidence of a mute; a marker that was
+     * there and is now gone means the user unmuted the chat. A chat that never showed a marker
+     * keeps what was learned (WhatsApp may have renamed its marker).
+     */
+    noteMarker(name, marked) {
+      const key = keyOf(name);
+      if (!key || stopped) return;
+      const before = markerSeen.get(key);
+      markerSeen.set(key, marked === true);
+      if (marked === true) set(key, true);
+      else if (before === true) set(key, false);
+    },
+
+    /** Is this chat muted? A marker on the page, or a mute learned from behaviour. */
+    resolve(name, marked) {
+      return marked === true || muted.get(keyOf(name)) === true;
     },
 
     /** true / false when learned, undefined when not known yet. */

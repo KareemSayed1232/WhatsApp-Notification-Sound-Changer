@@ -12,6 +12,7 @@ import {
   EVENT_ASK,
   EVENT_PING,
   EVENT_PLAY,
+  EVENT_PLAY_NATIVE,
   EVENT_PONG,
   EVENT_REPLACE,
   EVENT_SIGNAL,
@@ -28,6 +29,17 @@ const HOOK_CHECK_MS = 30_000;
 // if either came within WHATSAPP_ACTIVITY_MS of it, that path already handled the message.
 const INCOMING_WAIT_MS = 700;
 const WHATSAPP_ACTIVITY_MS = 2000;
+// While focused, WhatsApp's own sound (Edge) is held this long for the chat to be identified
+// from its unread counter; if none is, what was held plays after all.
+const HOLD_MS = 1500;
+
+function defaultIsFocused(document) {
+  try {
+    return document.visibilityState === "visible" && document.hasFocus();
+  } catch {
+    return false;
+  }
+}
 // Chat-id kinds that are always one-to-one chats (see classifyTag).
 const ONE_TO_ONE = ["lid", "phone"];
 
@@ -64,6 +76,7 @@ export function startBridge({
   // Told { title, tag } for every notification WhatsApp raises (never the message), so the
   // content script can learn the page and which chats are muted.
   onNotification = () => {},
+  isFocused = () => defaultIsFocused(document),
 }) {
   let state = null;
   let lastWhatsAppActivityAt = -Infinity;
@@ -71,6 +84,7 @@ export function startBridge({
   const lastIdForName = new Map();
   const titlesSeen = new Set();
   const incomingTimers = new Set();
+  let held = null; // WhatsApp's focused-mode sound, held back until the chat is known
   let queuedSignals = [];
   let flushTimer = null;
   let checkTimer = null;
@@ -198,6 +212,12 @@ export function startBridge({
 
       case "default-sound":
         if (!settings.enabled) return { decision: { action: "native" } };
+        if (shouldHold()) {
+          hold();
+          log("WhatsApp's sound while focused: held until the chat is known");
+          return { decision: { action: "silent" } };
+        }
+        lastWhatsAppActivityAt = Date.now();
         {
           const decision = playable(decidePlayback({ notification: {}, rules, sounds, settings }));
           log("sound with no notification (tab focused?) ->", decision);
@@ -222,9 +242,7 @@ export function startBridge({
     if (isOrphaned()) return stop(); // Go quiet: the hook then leaves WhatsApp untouched.
     const question = parse(event.detail);
     if (!state || !question) return; // Not ready: the hook leaves WhatsApp untouched.
-    if (question.kind === "notification" || question.kind === "default-sound") {
-      lastWhatsAppActivityAt = Date.now();
-    }
+    if (question.kind === "notification") lastWhatsAppActivityAt = Date.now();
     const answer = answerFor(question);
     if (answer) {
       document.dispatchEvent(new CustomEventCtor(EVENT_ANSWER, { detail: JSON.stringify(answer) }));
@@ -247,26 +265,88 @@ export function startBridge({
    */
   function onIncomingChat(name) {
     if (stopped || typeof name !== "string" || !name) return;
+    // WhatsApp already made its sound and we held it: this is the chat it was for.
+    if (takeHold()) return playForChat(name);
     const seenAt = Date.now();
     const timer = globalThis.setTimeout(() => {
       incomingTimers.delete(timer);
       if (stopped || !state || isOrphaned()) return;
+      if (takeHold()) return playForChat(name);
       if (Math.abs(lastWhatsAppActivityAt - seenAt) < WHATSAPP_ACTIVITY_MS) return; // handled
-      const { settings, rules, sounds } = state;
-      const preferChatId = lastIdForName.get(normalizeName(name)) ?? null;
-      const decision = decideForChatName({ name, rules, sounds, settings, preferChatId });
-      log("new message in", name, "while focused, no sound from WhatsApp ->", decision);
-      if (decision.action !== "play") return;
-      if (typeof engine.canPlay === "function" && !engine.canPlay()) {
-        record({ type: "play-blocked" });
-        return;
-      }
-      Promise.resolve(engine.play(decision.soundId, decision.volume)).then((started) => {
-        record({ type: started ? "played" : "play-failed" });
-        if (started) record({ type: "self-played" });
-      });
+      playForChat(name);
     }, INCOMING_WAIT_MS);
     incomingTimers.add(timer);
+  }
+
+  /** The chat's sound, else the default sound, else WhatsApp's own ding. Never for silent chats. */
+  function playForChat(name) {
+    if (stopped || !state) return;
+    const { settings, rules, sounds } = state;
+    const preferChatId = lastIdForName.get(normalizeName(name)) ?? null;
+    const decision = decideForChatName({ name, rules, sounds, settings, preferChatId });
+    log("new message in", name, "while focused ->", decision);
+    playDecision(decision);
+  }
+
+  function playDecision(decision) {
+    if (decision?.action === "native") return playWhatsAppDing();
+    if (decision?.action !== "play") return;
+    if (typeof engine.canPlay === "function" && !engine.canPlay()) {
+      log("our sound can't start yet (browser blocks audio until you click in WhatsApp)");
+      record({ type: "play-blocked" });
+      return;
+    }
+    Promise.resolve(engine.play(decision.soundId, decision.volume)).then((started) => {
+      log(
+        "playback of",
+        decision.soundId,
+        started ? "started" : "FAILED (see [WANSC] error above)"
+      );
+      record({ type: started ? "played" : "play-failed" });
+      if (started) record({ type: "self-played" });
+    });
+  }
+
+  /** WhatsApp's own incoming sound, played by the page hook as WhatsApp would. */
+  function playWhatsAppDing() {
+    try {
+      document.dispatchEvent(new CustomEventCtor(EVENT_PLAY_NATIVE));
+      log("playing WhatsApp's own sound (no sound of yours for this chat)");
+      record({ type: "self-played" });
+    } catch {
+      // Nothing more to do.
+    }
+  }
+
+  /** Hold WhatsApp's focused-mode sound only when ours can certainly play instead. */
+  function shouldHold() {
+    try {
+      if (!isFocused()) return false;
+    } catch {
+      return false;
+    }
+    return typeof engine.canPlay !== "function" || engine.canPlay();
+  }
+
+  function hold() {
+    if (held) globalThis.clearTimeout(held.timer);
+    const mine = { timer: null };
+    mine.timer = globalThis.setTimeout(() => {
+      if (held !== mine) return;
+      held = null;
+      // No chat turned up (e.g. the message is in the open chat): play what was held.
+      if (stopped || !state) return;
+      const { settings, rules, sounds } = state;
+      playDecision(decidePlayback({ notification: {}, rules, sounds, settings }));
+    }, HOLD_MS);
+    held = mine;
+  }
+
+  function takeHold() {
+    if (!held) return false;
+    globalThis.clearTimeout(held.timer);
+    held = null;
+    return true;
   }
 
   function onStorageChanged(changes, area) {
@@ -288,6 +368,8 @@ export function startBridge({
     document.removeEventListener(EVENT_SIGNAL, onSignal);
     globalThis.clearInterval(checkTimer);
     for (const timer of incomingTimers) globalThis.clearTimeout(timer);
+    if (held) globalThis.clearTimeout(held.timer);
+    held = null;
     incomingTimers.clear();
     globalThis.clearTimeout(flushTimer);
     try {

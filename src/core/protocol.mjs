@@ -18,6 +18,9 @@ export const EVENT_SIGNAL = "wansc:signal";
 // Bridge -> hook: "are you still installed and in place?" The hook answers with EVENT_PONG.
 export const EVENT_PING = "wansc:ping";
 export const EVENT_PONG = "wansc:pong";
+// Bridge -> hook: play WhatsApp's own incoming-message sound (used while WhatsApp is focused, so
+// every browser sounds the same even where WhatsApp itself plays nothing).
+export const EVENT_PLAY_NATIVE = "wansc:play-native";
 
 // chrome.runtime messages from the bridge to the background worker.
 export const MSG_GET_SOUND = "wansc:get-sound";
@@ -43,6 +46,7 @@ export const SELF_PLAY_MS = 150;
 // Incoming-message sound files measured on WhatsApp Web. Only these (plus any the hook has learned
 // from a notification-paired sound) are replaced when no notification preceded the sound, e.g.
 // when the tab is focused; other sounds are left alone.
+export const KNOWN_INCOMING_SOUND_URL = "https://static.whatsapp.net/rsrc.php/yW/r/BS_BUUXbKq5.mp3";
 const KNOWN_INCOMING_SOUND_FILES = ["BS_BUUXbKq5.mp3"];
 
 // WhatsApp serves its static assets from these hosts. The file type is not assumed to stay mp3.

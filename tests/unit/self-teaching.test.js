@@ -348,6 +348,39 @@ describe("learning which chats are muted from WhatsApp's own behaviour", () => {
     advance(2_100);
     expect(learner.isMuted("Mohanad")).toBeUndefined();
   });
+
+  // Found testing on real WhatsApp: "ana" notified while unmuted (learned: not muted), then was
+  // muted; the stale "not muted" beat the fresh mute marker and focused messages got through.
+  it("a mute marker on the page means muted, even after a notification said otherwise", () => {
+    start();
+    learner.noteNotification("ana");
+    learner.noteMarker("ana", true);
+    expect(learner.resolve("ana", true)).toBe(true);
+    expect(learner.isMuted("ana")).toBe(true);
+  });
+
+  it("the marker disappearing after being seen means the user unmuted the chat", () => {
+    start();
+    learner.noteBackgroundRise("ana");
+    advance(2_100);
+    learner.noteMarker("ana", true);
+    learner.noteMarker("ana", false);
+    expect(learner.resolve("ana", false)).toBe(false);
+  });
+
+  it("a learned mute still holds when the page shows no marker at all (WhatsApp renamed it)", () => {
+    start();
+    learner.noteBackgroundRise("ana");
+    advance(2_100);
+    learner.noteMarker("ana", false);
+    expect(learner.resolve("ana", false)).toBe(true);
+  });
+
+  it("before learning anything, the page marker decides", () => {
+    start();
+    expect(learner.resolve("ana", false)).toBe(false);
+    expect(learner.resolve("ana", true)).toBe(true);
+  });
 });
 
 // ------------------------------------------------------------------ the watcher uses it all
@@ -435,11 +468,24 @@ describe("the unread watcher with a learned page model and learned mutes", () =>
     expect(incoming).toEqual([]);
   });
 
-  it("a learned 'not muted' wins over a stale mute marker", () => {
-    show([{ name: "Mohanad", count: 0, muted: true }]);
-    start((name) => (name === "Mohanad" ? false : true));
-    show([{ name: "Mohanad", count: 1, muted: true }]);
-    expect(incoming).toEqual(["Mohanad"]);
+  it("hands each read to onRead before deciding about rises, so a fresh marker counts at once", () => {
+    const order = [];
+    show([{ name: "ana", count: 0 }]);
+    document.body.innerHTML = '<div id="pane-side"></div>';
+    watcher = startUnreadWatcher({
+      document,
+      read: () => chats,
+      onRead: (current) => order.push(`read:${current.size}`),
+      isMuted: () => (order.push("decide"), false),
+      onIncoming: (name) => incoming.push(name),
+      MutationObserverCtor: FakeObserver,
+      setTimeoutFn: (fn) => timers.push(fn),
+      clearTimeoutFn: () => {},
+      now: () => 50_000,
+      isFocused: () => true,
+    });
+    show([{ name: "ana", count: 1 }]);
+    expect(order).toEqual(["read:1", "read:1", "decide"]);
   });
 });
 

@@ -3,9 +3,11 @@ import {
   EVENT_ASK,
   EVENT_PING,
   EVENT_PLAY,
+  EVENT_PLAY_NATIVE,
   EVENT_PONG,
   EVENT_SIGNAL,
   NO_SOUND_WINDOW_MS,
+  KNOWN_INCOMING_SOUND_URL,
   PAIRING_WINDOW_MS,
   SELF_PLAY_MS,
   isKnownIncomingSound,
@@ -15,6 +17,7 @@ import {
 
 const HOOK_MARKER = Symbol.for("wansc.main-hook");
 const LEARNED_KEY = "wanscLearnedSounds";
+const SOUND_URL_KEY = "wanscSoundUrl";
 const MAX_LEARNED = 5;
 // Web Audio is only watched once the normal <audio> route has demonstrably stopped producing
 // sounds (this many notifications in a row with none), or has already been seen to work.
@@ -189,9 +192,35 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
     return learnedCache;
   }
 
+  // WhatsApp's incoming-message sound as it was last seen (kept across reloads), so the
+  // extension can play WhatsApp's own ding even if WhatsApp renamed or moved the file.
+  let soundUrl = null;
+  function knownSoundUrl() {
+    if (soundUrl === null) {
+      soundUrl = KNOWN_INCOMING_SOUND_URL;
+      try {
+        const stored = window.localStorage?.getItem(SOUND_URL_KEY);
+        if (stored && isWhatsAppSound(stored)) soundUrl = stored;
+      } catch {
+        // Keep the built-in one.
+      }
+    }
+    return soundUrl;
+  }
+  function rememberSoundUrl(url) {
+    if (!isWhatsAppSound(url) || url === soundUrl) return;
+    soundUrl = url;
+    try {
+      window.localStorage?.setItem(SOUND_URL_KEY, url);
+    } catch {
+      // Remembered for this page only.
+    }
+  }
+
   /** A sound that played right after a notification is the incoming-message sound: remember it. */
   function learn(url) {
     if (!isWhatsAppSound(url)) return;
+    rememberSoundUrl(url);
     const file = soundFileName(url);
     const files = learnedFiles();
     if (!file || files.includes(file)) return;
@@ -379,6 +408,7 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
       return paired.decision;
     }
     if (isKnownIncomingSound(url, learnedFiles())) {
+      rememberSoundUrl(url);
       const decision = ask({ kind: "default-sound" })?.decision ?? null;
       if (decision) signal({ type: "unpaired", url, ...meta, background: inBackground() });
       return decision;
@@ -521,6 +551,24 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
 
   // ---------------------------------------------------------------- self-check
 
+  /**
+   * Play WhatsApp's own ding, exactly as WhatsApp does (a new Audio element), through the
+   * ORIGINAL play() so our own wrapper does not step in.
+   */
+  function onPlayNative() {
+    try {
+      const AudioCtor = window.Audio;
+      if (typeof AudioCtor !== "function" || typeof originalPlay !== "function") return;
+      const audio = new AudioCtor(knownSoundUrl());
+      const result = originalPlay.call(audio);
+      if (result && typeof result.catch === "function") result.catch(() => {});
+      debug("played WhatsApp's own sound on request");
+    } catch {
+      // Nothing to play with.
+    }
+  }
+  document.addEventListener(EVENT_PLAY_NATIVE, onPlayNative);
+
   /** The bridge asks "are you still in place?" because WhatsApp could replace our wrappers. */
   function onPing() {
     try {
@@ -538,6 +586,7 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
     uninstall() {
       clearPending();
       document.removeEventListener(EVENT_PING, onPing);
+      document.removeEventListener(EVENT_PLAY_NATIVE, onPlayNative);
       if (OriginalNotification) window.Notification = OriginalNotification;
       if (wrappedPlay) mediaProto.play = originalPlay;
       if (wrappedShow) registrationProto.showNotification = originalShow;

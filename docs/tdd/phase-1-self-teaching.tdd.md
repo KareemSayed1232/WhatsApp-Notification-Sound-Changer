@@ -59,3 +59,20 @@ npm run lint && npm run build && npm run lint:firefox   # clean, 0 errors / 0 wa
   stay mostly idle until WhatsApp changes something.
 - The structural list needs at least two chats the extension already knows on screen.
 - Mute learning needs one background message per chat (after which it is saved).
+
+## Fix after real-WhatsApp testing (Oct 19 2026)
+
+**Bug reported by the owner:** chat "ana" notified while unmuted (learned: not muted), was then
+muted, and focused messages still reached the "new message while focused" path. Phase 1 had let a
+learned "not muted" override a present mute marker; one test asserted exactly that and was wrong.
+
+**Rule now:** muted = mute marker on the page **or** learned muted. A marker that was seen and then
+disappears clears a learned mute (the user unmuted). A chat that never shows a marker keeps what was
+learned (a renamed marker). The watcher passes every read to `onRead` before deciding, so a fresh
+marker counts at once.
+
+```text
+npx vitest run tests/unit/self-teaching.test.js   # RED: 5 failed | 36 passed (wrong test replaced)
+npx vitest run tests/unit/self-teaching.test.js   # GREEN: 41 passed
+npx vitest run                                    # 679 passed
+```

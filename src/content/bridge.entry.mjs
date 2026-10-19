@@ -99,8 +99,12 @@ function startLearning(saved) {
       onIncoming: bridge.onIncomingChat,
       read: model.readChats,
       findPane: model.findPane,
-      // What WhatsApp's behaviour taught us first; the page's mute marker otherwise.
-      isMuted: (name, chat) => mutes.isMuted(name) ?? chat.muted,
+      // A mute marker on the page, or a mute learned from WhatsApp's behaviour.
+      isMuted: (name, chat) => mutes.resolve(name, chat.muted),
+      // Notice mute markers appear (muted) and disappear (unmuted) as the user changes them.
+      onRead: (chats) => {
+        for (const chat of chats.values()) mutes.noteMarker(chat.name, chat.muted);
+      },
       onRise: ({ name }) => {
         // Only a truly hidden tab: there WhatsApp notifies every unmuted chat.
         if (document.visibilityState === "hidden") mutes.noteBackgroundRise(name);
