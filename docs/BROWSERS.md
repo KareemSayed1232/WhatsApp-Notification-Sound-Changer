@@ -9,9 +9,27 @@ changes.
 
 | Browser                                    | Build target  | Built | Automated checks                                  | Verified in the real browser                         |
 | ------------------------------------------ | ------------- | ----- | ------------------------------------------------- | ---------------------------------------------------- |
-| Chrome, Edge, Brave, Opera, Vivaldi (111+) | `dist/chromium` | yes | unit + integration tests, manifest checks         | **Edge 155 on Windows 11** (in use by the author)    |
-| Firefox 140+                               | `dist/firefox`  | yes | same tests, plus `web-ext lint`: 0 errors/warnings | **not yet** (needs a Firefox to try it)              |
-| Safari 16.4+ (macOS, iOS)                  | `dist/safari`   | yes | manifest checks only                              | **not yet** (needs a Mac and Xcode)                  |
+| Chrome, Edge, Brave, Opera, Vivaldi (111+) | `dist/chromium` | yes | unit + integration tests, manifest checks         | **Edge 155 on Windows 11** (owner, Oct 2026)         |
+| Firefox 140+ (desktop)                     | `dist/firefox`  | yes | same tests, plus `web-ext lint`: 0 errors/warnings | **Firefox 158 on Windows 11** (owner, Oct 2026)      |
+| Safari (macOS)                             | `dist/safari`   | yes | manifest checks only                              | **not yet** (needs a Mac and Xcode)                  |
+
+**Firefox for Android (142+): supported, not yet verified.** The same `dist/firefox` build
+installs there. Two things come from Android, not the extension:
+
+- WhatsApp Web sends phone browsers to the app; turn on Firefox's **Desktop site** for
+  web.whatsapp.com, and link it with **Link with phone number** (the QR code cannot be scanned from
+  the same phone).
+- Android pauses background tabs, so sounds are replaced while the WhatsApp tab is open on screen;
+  with Firefox in the background, Android may deliver nothing to the page.
+
+On Android the popup opens as a full page that fills the screen, and **Upload sound** opens the
+upload page in a tab (Android has no windows API; if it cannot open a tab either, it uses the
+inline file picker).
+
+**Safari is unverified.** The build sets a minimum of Safari 16.4, but whether that version runs
+the page-world hook (`"world": "MAIN"` content scripts) has not been checked on a Mac. If the hook
+cannot run, the status line says "Can't reach the WhatsApp page"; the minimum version may need to
+be raised after testing.
 
 Operating systems: Windows, macOS and Linux are covered by the CI matrix in
 `.github/workflows/ci.yml` (it has not run on GitHub yet, because nothing is pushed).
@@ -45,7 +63,7 @@ npm run package      # dist/packages/*.zip, one per browser, for the stores
 | ---------------------- | ------------------------------------- | ---------------------------------------------------- | ----------------------------------------- |
 | Background             | service worker                        | non-persistent event page (same `background.js`)     | service worker                            |
 | Add-on id              | none needed                           | `whatsapp-sound-changer@kareemsayed1232.github.io`   | assigned by the Xcode project             |
-| Minimum version        | Chrome 111 (page-world scripts)       | 140 (page-world scripts need 128; data-collection key needs 140) | 16.4              |
+| Minimum version        | Chrome 111 (page-world scripts)       | 140 (page-world scripts need 128; data-collection key needs 140) | 16.4 (unverified) |
 | `author` key           | object form                           | removed (Firefox requires a string)                  | removed                                   |
 | Data collection        | n/a                                   | declares `none`                                      | n/a                                       |
 
@@ -70,3 +88,11 @@ Each store takes the matching zip from `dist/packages`:
 Before publishing, replace the original author's contact in `src/manifest.json`, choose your own
 Firefox add-on id in `scripts/build.mjs` (`GECKO_ID`), and keep the GPLv3 licence and the upstream
 copyright notice.
+
+## If WhatsApp Web moves to another address
+
+The address is defined in one place, `WHATSAPP_ORIGIN` / `WHATSAPP_MATCH` in
+`src/core/protocol.mjs`, plus the three `matches` / `host_permissions` entries in
+`src/manifest.json` (a manifest cannot import code). A test fails if the two disagree. Change both,
+rebuild, and publish an update: browsers ask users to approve a new site permission, so an address
+move always needs a new version.

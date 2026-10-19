@@ -224,7 +224,7 @@ export async function mountPopup({ document, stateStore, chrome, useUploadWindow
         "aria-label": `${S.uploadFor} ${row.name}`,
         // Where the browser would close the popup as soon as a file picker opens, upload in a
         // small window instead; elsewhere the picker opens right here.
-        onClick: () => (useWindow ? openUploadWindow(row.key) : fileInput.click()),
+        onClick: () => (useWindow ? openUploadWindow(row.key, fileInput) : fileInput.click()),
       },
       icon(document, "upload", 15),
       S.uploadButton
@@ -361,13 +361,25 @@ export async function mountPopup({ document, stateStore, chrome, useUploadWindow
     renderChats();
   }
 
-  function openUploadWindow(key) {
-    chrome.windows.create({
-      url: chrome.runtime.getURL(`ui/upload.html?chat=${encodeURIComponent(key)}`),
-      type: "popup",
-      width: 480,
-      height: 380,
-    });
+  /**
+   * The small upload window; a tab where the browser has no windows API; and if it cannot open
+   * either, the inline file picker (better than a button that does nothing).
+   */
+  function openUploadWindow(key, fileInput) {
+    const url = chrome.runtime.getURL(`ui/upload.html?chat=${encodeURIComponent(key)}`);
+    try {
+      if (typeof chrome.windows?.create === "function") {
+        chrome.windows.create({ url, type: "popup", width: 480, height: 380 });
+      } else if (typeof chrome.tabs?.create === "function") {
+        chrome.tabs.create({ url });
+      } else {
+        fileInput.click();
+        return;
+      }
+    } catch {
+      fileInput.click();
+      return;
+    }
     win.close?.();
   }
 

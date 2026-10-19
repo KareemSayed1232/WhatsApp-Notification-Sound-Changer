@@ -77,3 +77,13 @@
   padding: 6px 2px;
   text-align: left;
 }
+
+/* Phones (Firefox for Android opens the popup as a full page): fill the screen instead of a fixed
+   400 px. Only touch-only devices match, so desktop popups, which size to their content, are
+   never affected. */
+@media (hover: none) and (pointer: coarse) {
+  body {
+    width: auto;
+    max-width: 100%;
+  }
+}

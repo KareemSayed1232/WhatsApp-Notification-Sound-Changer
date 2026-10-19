@@ -44,7 +44,9 @@ export const targets = {
   chromium: (manifest) => omit(manifest, "browser_specific_settings"),
 
   // Firefox 140+: MAIN-world content scripts need 128, and Mozilla now requires the
-  // data_collection_permissions key, which needs 140 (Android: 142). Firefox has no service
+  // data_collection_permissions key, which needs 140 (Android: 142; the Android entry stays so the
+  // key validates, but desktop-only is chosen when uploading to addons.mozilla.org, since WhatsApp
+  // Web does not run in phone browsers). Firefox has no service
   // workers for extensions, so the same bundled file runs as a (non-persistent) event page.
   // `author` is dropped because Firefox wants a string where Chrome takes an {email} object.
   firefox: (manifest) => ({

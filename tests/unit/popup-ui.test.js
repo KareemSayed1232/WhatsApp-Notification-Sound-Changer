@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createStateStore } from "../../src/core/state-store.mjs";
 import { mountPopup } from "../../src/ui/popup.mjs";
 import { createFakeSoundStore, createFakeStorage } from "../helpers/fake-storage.js";
@@ -445,5 +448,49 @@ describe("adding a chat by name (last resort)", () => {
     $("#quickName").value = "   ";
     submitQuickAdd();
     await vi.waitFor(() => expect($("#message").textContent).toMatch(/Enter a name/));
+  });
+});
+
+describe("browsers without a windows API (fragility Phase 4)", () => {
+  beforeEach(() => mount({ initial: { recentSenders }, setup: twoSounds, useUploadWindow: true }));
+
+  it("opens the upload page in a tab instead", () => {
+    delete chrome.windows;
+    chrome.tabs = { ...(chrome.tabs ?? {}), create: vi.fn() };
+    rowOf("Radwa").querySelector(".upload-for-chat").click();
+    expect(chrome.tabs.create).toHaveBeenCalledWith({
+      url: "chrome-extension://ext/ui/upload.html?chat=chat%7Cradwa",
+    });
+  });
+
+  it("falls back to the inline file picker when it cannot open anything", () => {
+    delete chrome.windows;
+    chrome.tabs = {};
+    const fileInput = rowOf("Radwa").querySelector(".row-file");
+    fileInput.click = vi.fn();
+    expect(() => rowOf("Radwa").querySelector(".upload-for-chat").click()).not.toThrow();
+    expect(fileInput.click).toHaveBeenCalled();
+  });
+});
+
+describe("Firefox for Android", () => {
+  const ANDROID_FIREFOX = "Mozilla/5.0 (Android 14; Mobile; rv:142.0) Gecko/142.0 Firefox/142.0";
+
+  it("Upload sound opens the upload page in a tab (Android has no windows API)", async () => {
+    vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue(ANDROID_FIREFOX);
+    await mount({ initial: { recentSenders }, setup: twoSounds, useUploadWindow: undefined });
+    delete chrome.windows;
+    chrome.tabs = { ...(chrome.tabs ?? {}), create: vi.fn() };
+    rowOf("Radwa").querySelector(".upload-for-chat").click();
+    expect(chrome.tabs.create).toHaveBeenCalledWith({
+      url: "chrome-extension://ext/ui/upload.html?chat=chat%7Cradwa",
+    });
+  });
+
+  it("the popup fills a phone's width instead of a fixed 400 px (touch-only screens)", () => {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const css = readFileSync(path.resolve(here, "../../src/ui/popup.css"), "utf8");
+    const phone = /@media \(hover: none\) and \(pointer: coarse\) \{[^}]*body \{[^}]*width: auto;/s;
+    expect(css).toMatch(phone);
   });
 });

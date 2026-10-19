@@ -158,6 +158,9 @@ describe("browser-specific manifests", () => {
       strict_min_version: "140.0",
       data_collection_permissions: { required: ["none"] },
     });
+    // Kept so the data-collection key validates for Android too (without it, web-ext lint warns).
+    // Desktop-only is chosen on addons.mozilla.org at upload; the popup no longer needs a windows
+    // API anyway (it falls back to a tab, then the inline picker).
     expect(manifest.browser_specific_settings.gecko_android).toEqual({
       strict_min_version: "142.0",
     });
