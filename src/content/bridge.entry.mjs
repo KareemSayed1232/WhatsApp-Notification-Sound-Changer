@@ -39,6 +39,8 @@ const bridge = startBridge({
 });
 
 const SAVE_DELAY_MS = 1000;
+// How often the chat list is checked for being readable (3 failed checks in a row warn).
+const PAGE_CHECK_MS = 60_000;
 // WhatsApp updates the chat list just after it notifies; look at the row a moment later.
 const LEARN_DELAY_MS = 1000;
 
@@ -77,6 +79,16 @@ function startLearning(saved) {
       }
     }, SAVE_DELAY_MS);
   }
+
+  // Tell the status line whether WhatsApp's chat list can still be read, and how.
+  globalThis.setInterval(() => {
+    try {
+      const chats = model.readChats();
+      bridge.report({ type: "page", readable: chats.size > 0, layers: model.layers() });
+    } catch {
+      // A check is a nicety.
+    }
+  }, PAGE_CHECK_MS);
 
   learning = {
     onNotification({ title }) {

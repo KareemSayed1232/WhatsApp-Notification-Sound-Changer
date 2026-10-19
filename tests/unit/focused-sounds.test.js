@@ -426,7 +426,7 @@ describe("playing the chat's sound for a focused message", () => {
     bridge.onIncomingChat("Radwa");
     await vi.advanceTimersByTimeAsync(2_000);
     expect(engine.play).not.toHaveBeenCalled();
-    expect(data.health.failedRun).toBe(1);
+    expect(data.health.blockedRun).toBe(1); // "blocked", told apart from "broken" since Phase 3
   });
 
   it("counts it as working on the status line", async () => {

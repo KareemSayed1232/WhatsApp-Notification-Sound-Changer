@@ -125,30 +125,37 @@ export function createPageModel({
     return first(document, LABEL_PANES);
   }
 
+  // Which way the last read found things (for the status line and diagnostics).
+  let lastLayers = { list: "none", name: "none", counter: "none" };
+  let hit = "none";
+
   function rows(known) {
-    const fromPane = (pane) => {
+    const fromPane = (pane, layer) => {
       const marked = pane.querySelectorAll(ROW_SELECTOR);
-      if (marked.length > 0) return [...marked];
+      if (marked.length > 0) return { rows: [...marked], layer };
       const container = listContainer(pane, known);
-      return container ? [...container.children] : [];
+      return container
+        ? { rows: [...container.children], layer: "structure" }
+        : { rows: [], layer };
     };
     const strong = first(document, STRONG_PANES);
-    if (strong) return fromPane(strong);
+    if (strong) return fromPane(strong, "builtin");
     const structural = listContainer(body(), known);
-    if (structural) return [...structural.children];
+    if (structural) return { rows: [...structural.children], layer: "structure" };
     const labelled = first(document, LABEL_PANES);
-    return labelled ? fromPane(labelled) : [];
+    return labelled ? fromPane(labelled, "label") : { rows: [], layer: "none" };
   }
 
   function nameElementOf(row, known) {
+    const found = (el, layer) => ((hit = layer), el);
     const learnedEl = findByFingerprint(row, trusted.name);
-    if (textOf(learnedEl)) return learnedEl;
+    if (textOf(learnedEl)) return found(learnedEl, "learned");
     const strong = first(row, STRONG_TITLES);
-    if (textOf(strong)) return strong;
+    if (textOf(strong)) return found(strong, "builtin");
     const byKnownName = knownNameElements(row, known)[0];
-    if (byKnownName) return byKnownName;
+    if (byKnownName) return found(byKnownName, "structure");
     const loose = first(row, LOOSE_TITLES);
-    return textOf(loose) ? loose : null;
+    return textOf(loose) ? found(loose, "loose") : found(null, "none");
   }
 
   /**
@@ -173,17 +180,17 @@ export function createPageModel({
   }
 
   function counterElementOf(row, nameEl) {
+    const found = (el, layer) => ((hit = layer), el);
     const learnedEl = findByFingerprint(row, trusted.counter);
-    if (learnedEl && DIGITS.test(learnedEl.textContent.trim())) return learnedEl;
+    if (learnedEl && DIGITS.test(learnedEl.textContent.trim())) return found(learnedEl, "learned");
     const builtIn = row.querySelector(UNREAD_SELECTOR);
-    if (builtIn) return builtIn;
+    if (builtIn) return found(builtIn, "builtin");
     const structural = structuralCounter(row, nameEl);
-    if (structural) return structural;
-    return (
-      [...row.querySelectorAll("[aria-label]")].find((el) =>
-        UNREAD_LABEL.test(el.getAttribute("aria-label"))
-      ) ?? null
+    if (structural) return found(structural, "structure");
+    const labelled = [...row.querySelectorAll("[aria-label]")].find((el) =>
+      UNREAD_LABEL.test(el.getAttribute("aria-label"))
     );
+    return labelled ? found(labelled, "label") : found(null, "none");
   }
 
   function countOf(el) {
@@ -202,15 +209,25 @@ export function createPageModel({
   /** Every rendered chat: Map(normalized name -> { name, count, muted }). */
   function readChats() {
     const chats = new Map();
+    const tally = { name: new Map(), counter: new Map() };
+    const add = (kind, layer) => tally[kind].set(layer, (tally[kind].get(layer) ?? 0) + 1);
+    const commonest = (kind) => [...tally[kind]].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "none";
+    let list = "none";
     try {
       const known = names();
-      for (const row of rows(known)) {
+      const found = rows(known);
+      list = found.layer;
+      for (const row of found.rows) {
         if (isNotAChat(row)) continue;
         const nameEl = nameElementOf(row, known);
+        const nameLayer = hit;
         const name = textOf(nameEl);
         if (!name || name.length > MAX_NAME_LENGTH) continue;
+        add("name", nameLayer);
         const key = normalizeName(name);
-        const count = countOf(counterElementOf(row, nameEl));
+        const counterEl = counterElementOf(row, nameEl);
+        if (counterEl) add("counter", hit);
+        const count = countOf(counterEl);
         const muted = mutedMarked(row);
         const seen = chats.get(key);
         chats.set(key, {
@@ -222,6 +239,11 @@ export function createPageModel({
     } catch {
       // An unexpected page: report what was read so far.
     }
+    lastLayers = {
+      list: chats.size > 0 ? list : "none",
+      name: commonest("name"),
+      counter: commonest("counter"),
+    };
     return chats;
   }
 
@@ -255,7 +277,7 @@ export function createPageModel({
       if (!key) return;
       const known = names();
       known.add(key);
-      for (const row of rows(known)) {
+      for (const row of rows(known).rows) {
         if (isNotAChat(row)) continue;
         const nameEl = nameElementOf(row, known);
         if (!nameEl || normalizeName(textOf(nameEl)) !== key) continue;
@@ -272,5 +294,13 @@ export function createPageModel({
     }
   }
 
-  return { findPane, readChats, readNames, learnFrom, learned: learnedNow };
+  return {
+    findPane,
+    readChats,
+    readNames,
+    learnFrom,
+    learned: learnedNow,
+    /** Which way the last read found the list, the names and the counters. */
+    layers: () => ({ ...lastLayers }),
+  };
 }

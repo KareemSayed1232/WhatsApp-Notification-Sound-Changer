@@ -444,5 +444,10 @@ export function startBridge({
     return [...names];
   }
 
-  return { ready: refresh(), stop, onIncomingChat, knownChatNames };
+  /** Something the content script checked (e.g. whether the chat list is readable). */
+  function report(signal) {
+    if (signal && typeof signal === "object" && !stopped) record(signal);
+  }
+
+  return { ready: refresh(), stop, onIncomingChat, knownChatNames, report };
 }

@@ -90,8 +90,12 @@ export const STRINGS = {
   healthWorking: "Working. Last handled a message",
   healthNoSound:
     "WhatsApp keeps notifying us but plays no sound. Either WhatsApp's own sounds are turned off, or WhatsApp changed something. If you hear no sound of yours, copy the diagnostics in settings.",
-  healthPlayFailed:
+  healthPlayBlocked:
     "Your sound couldn't play last time: the browser blocks sound until you click once in the WhatsApp tab. Click anywhere in WhatsApp to fix it. WhatsApp's own sound was used where possible.",
+  healthListUnreadable:
+    "Can't read WhatsApp's chat list, so sounds while WhatsApp is on screen and 'Refresh chats' may not work. Sounds in the background still work. WhatsApp may have changed. Copy the diagnostics in settings.",
+  healthPlayFailed:
+    "Your sound couldn't play last time: the sound file itself failed to play. Try uploading it again, or pick another sound.",
   healthTitlesGeneric:
     "WhatsApp's notifications no longer say which chat a message is from, so only sounds tied to a chat (picked from your chat list) can play. WhatsApp may have changed. Copy the diagnostics in settings.",
   healthSenderFormat:

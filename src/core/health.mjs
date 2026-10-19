@@ -14,6 +14,19 @@ const SOUND_EXTENSIONS = ["mp3", "ogg", "oga", "opus", "m4a", "aac", "wav", "web
 // because WhatsApp played none.
 const VIA = ["audio", "webaudio", "self"];
 const HOOK_STATES = ["unknown", "ok", "missing", "overwritten"];
+// How the chat list is being read (page-model.mjs): what was learned, WhatsApp's own names,
+// page structure, English labels, loose title matching, or nothing.
+const LAYERS = ["learned", "builtin", "structure", "label", "loose", "none", "unknown"];
+// This many chat-list checks in a row that read nothing mean the list cannot be read.
+export const UNREADABLE_ATTENTION = 3;
+const MAX_DELAY_MS = 5000;
+
+const layerOf = (value) => (LAYERS.includes(value) ? value : "unknown");
+const emptyPage = () => ({
+  readable: true,
+  unreadableRun: 0,
+  layers: { list: "unknown", name: "unknown", counter: "unknown" },
+});
 
 export function emptyHealth() {
   return {
@@ -28,9 +41,13 @@ export function emptyHealth() {
     // Sounds in a row that arrived, while the tab was in the background, with no notification
     // saying which chat they were for.
     unnamedRun: 0,
-    // Our sound could not play (browser blocking audio, or a sound that failed to decode) since
-    // the last one that did.
+    // Since the last sound of ours that played: times the browser blocked audio (needs a click),
+    // and times our sound itself failed (e.g. a file that cannot be decoded).
+    blockedRun: 0,
     failedRun: 0,
+    // How long WhatsApp last took to play its sound after a notification (ms).
+    soundDelayMs: 0,
+    page: emptyPage(),
     // Notification titles stopped naming the chat (one title for many chats).
     titlesGeneric: false,
     // Group messages in a row without a "Sender: text" part.
@@ -62,7 +79,21 @@ export function sanitizeHealth(raw) {
     selfPlayed: count(raw.selfPlayed),
     silentRun: count(raw.silentRun),
     unnamedRun: count(raw.unnamedRun),
+    blockedRun: count(raw.blockedRun),
     failedRun: count(raw.failedRun),
+    soundDelayMs: Math.min(MAX_DELAY_MS, count(raw.soundDelayMs)),
+    page:
+      raw.page && typeof raw.page === "object"
+        ? {
+            readable: raw.page.readable !== false,
+            unreadableRun: count(raw.page.unreadableRun),
+            layers: {
+              list: layerOf(raw.page.layers?.list),
+              name: layerOf(raw.page.layers?.name),
+              counter: layerOf(raw.page.layers?.counter),
+            },
+          }
+        : emptyPage(),
     titlesGeneric: raw.titlesGeneric === true,
     senderMissRun: count(raw.senderMissRun),
     hook: {
@@ -147,13 +178,32 @@ export function applySignal(health, signal, now) {
       next.selfPlayed += 1;
       next.shapes.sound = describeSound("", { via: "self" });
       break;
-    case "play-blocked": // our sound could not start, so WhatsApp's own sound was kept
-    case "play-failed": // our sound failed after WhatsApp's had been muted
+    case "play-blocked": // our sound could not start (browser blocks audio until a click)
+      next.blockedRun += 1;
+      break;
+    case "play-failed": // our sound itself failed to play
       next.failedRun += 1;
       break;
     case "played":
+      next.blockedRun = 0;
       next.failedRun = 0;
       break;
+    case "timing":
+      next.soundDelayMs = Math.min(MAX_DELAY_MS, count(signal.delay));
+      break;
+    case "page": {
+      const readable = signal.readable === true;
+      next.page = {
+        readable,
+        unreadableRun: readable ? 0 : next.page.unreadableRun + 1,
+        layers: {
+          list: layerOf(signal.layers?.list),
+          name: layerOf(signal.layers?.name),
+          counter: layerOf(signal.layers?.counter),
+        },
+      };
+      break;
+    }
     case "titles":
       next.titlesGeneric = signal.generic === true;
       break;
@@ -181,10 +231,14 @@ export function healthStatus(health) {
   const h = sanitizeHealth(health);
   if (h.hook.state === "missing") return { code: "hook-missing", level: "bad" };
   if (h.hook.state === "overwritten") return { code: "hook-overwritten", level: "bad" };
+  if (h.blockedRun > 0) return { code: "play-blocked", level: "warn" };
   if (h.failedRun > 0) return { code: "play-failed", level: "warn" };
   if (h.unnamedRun >= SILENT_RUN_ATTENTION) return { code: "no-chat-info", level: "warn" };
   if (h.titlesGeneric) return { code: "titles-generic", level: "warn" };
   if (h.senderMissRun >= SENDER_MISS_ATTENTION) return { code: "sender-format", level: "warn" };
+  if (h.page.unreadableRun >= UNREADABLE_ATTENTION) {
+    return { code: "list-unreadable", level: "warn" };
+  }
   if (h.silentRun >= SILENT_RUN_ATTENTION) return { code: "no-sound", level: "warn" };
   if (h.lastPairedAt > 0) return { code: "working", level: "ok", at: h.lastPairedAt };
   return { code: "waiting", level: "idle" };
@@ -206,9 +260,12 @@ export function buildDiagnostics({ version, userAgent, health, state, now }) {
       soundsPlayedByUsAlone: h.selfPlayed,
       notificationsWithoutSoundInARow: h.silentRun,
       backgroundSoundsWithoutChatInARow: h.unnamedRun,
+      ourSoundBlockedInARow: h.blockedRun,
       ourSoundFailedInARow: h.failedRun,
       groupMessagesWithoutSenderInARow: h.senderMissRun,
     },
+    timing: { whatsappSoundDelayMs: h.soundDelayMs },
+    chatList: { readable: h.page.readable, ...h.page.layers },
     whatsappShapesChanged: {
       notificationTitlesAreNotChatNames: h.titlesGeneric,
     },

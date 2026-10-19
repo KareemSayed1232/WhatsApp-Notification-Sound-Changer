@@ -18,6 +18,15 @@ import {
 const HOOK_MARKER = Symbol.for("wansc.main-hook");
 const LEARNED_KEY = "wanscLearnedSounds";
 const SOUND_URL_KEY = "wanscSoundUrl";
+// How long WhatsApp took to play its sound after a notification, measured (kept across reloads).
+const TIMING_KEY = "wanscTiming";
+const MAX_SAMPLES = 10;
+const MAX_DELAY_MS = 5000;
+// However slow WhatsApp gets, a sound more than this long after a notification is not paired.
+const MAX_PAIRING_MS = 2000;
+const MAX_SELF_PLAY_MS = 1000;
+// A known incoming sound this soon after a notification it missed is that notification's, late.
+const LATE_LOOKBACK_MS = 3000;
 const MAX_LEARNED = 5;
 // Web Audio is only watched once the normal <audio> route has demonstrably stopped producing
 // sounds (this many notifications in a row with none), or has already been seen to work.
@@ -62,6 +71,8 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
   let silentRun = 0;
   let webAudioProven = false;
   let learnedCache = null;
+  let delays = null;
+  let lastNotificationAt = -Infinity;
 
   /** Opt-in tracing: run `localStorage.wanscDebug = "1"` in the page console, then reload. */
   function debug(...args) {
@@ -132,6 +143,7 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
   function setPending(decision, { selfPlay = false } = {}) {
     clearPending();
     const mine = { decision, at: now(), timer: null, selfTimer: null, selfPlayed: false };
+    lastNotificationAt = mine.at;
     // A notification WhatsApp did not mark silent would have made the operating system ring
     // (we hid it). If WhatsApp plays no sound of its own, play the chat's sound ourselves.
     if (selfPlay && decision?.action === "play") {
@@ -146,17 +158,20 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
           // Nothing more to do.
         }
         signal({ type: "self-played" });
-      }, SELF_PLAY_MS);
+      }, selfPlayDelay());
     }
     // If no sound follows, remember it: several in a row means WhatsApp changed (or its own
     // sounds are off), which the status line reports.
-    mine.timer = schedule(() => {
-      if (pending !== mine) return;
-      pending = null;
-      if (mine.selfPlayed) return;
-      silentRun += 1;
-      signal({ type: "silent" });
-    }, NO_SOUND_WINDOW_MS);
+    mine.timer = schedule(
+      () => {
+        if (pending !== mine) return;
+        pending = null;
+        if (mine.selfPlayed) return;
+        silentRun += 1;
+        signal({ type: "silent" });
+      },
+      Math.max(NO_SOUND_WINDOW_MS, pairingWindow() + 500)
+    );
     pending = mine;
   }
 
@@ -172,7 +187,52 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
 
   /** The notification a sound arriving now would belong to, or null. Does not consume it. */
   function freshPending() {
-    return pending && now() - pending.at <= PAIRING_WINDOW_MS ? pending : null;
+    return pending && now() - pending.at <= pairingWindow() ? pending : null;
+  }
+
+  // ---------------------------------------------------------------- adaptive timing
+
+  function timingSamples() {
+    if (delays === null) {
+      delays = [];
+      try {
+        const stored = JSON.parse(window.localStorage?.getItem(TIMING_KEY) || "[]");
+        if (Array.isArray(stored)) {
+          delays = stored
+            .filter((n) => Number.isFinite(n) && n >= 0 && n <= MAX_DELAY_MS)
+            .slice(-MAX_SAMPLES);
+        }
+      } catch {
+        // Unreadable: start from the measured defaults.
+      }
+    }
+    return delays;
+  }
+
+  function recordDelay(ms) {
+    const delay = Math.round(ms);
+    if (!(delay >= 0 && delay <= MAX_DELAY_MS)) return;
+    const samples = timingSamples();
+    samples.push(delay);
+    if (samples.length > MAX_SAMPLES) samples.shift();
+    try {
+      window.localStorage?.setItem(TIMING_KEY, JSON.stringify(samples));
+    } catch {
+      // Kept for this page only.
+    }
+    signal({ type: "timing", delay });
+  }
+
+  const slowest = () => Math.max(0, ...timingSamples());
+
+  /** How long after a notification its sound is still expected: 3x the slowest seen, 0.5-2 s. */
+  function pairingWindow() {
+    return Math.min(MAX_PAIRING_MS, Math.max(PAIRING_WINDOW_MS, slowest() * 3));
+  }
+
+  /** How long to wait for WhatsApp's own sound before playing ours: 2x the slowest seen. */
+  function selfPlayDelay() {
+    return Math.min(MAX_SELF_PLAY_MS, Math.max(SELF_PLAY_MS, slowest() * 2 + 50));
   }
 
   // ---------------------------------------------------------------- learned sound files
@@ -403,12 +463,17 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
     if (paired?.selfPlayed) return { action: "silent" }; // we already played this one
     if (paired) {
       learn(url);
+      recordDelay(now() - paired.at);
       silentRun = 0;
       signal({ type: "paired", url, ...meta });
       return paired.decision;
     }
     if (isKnownIncomingSound(url, learnedFiles())) {
       rememberSoundUrl(url);
+      // WhatsApp's incoming sound shortly after a notification we stopped waiting for: it is that
+      // notification's, just slower than expected. Measure it, so the next one is caught.
+      const since = now() - lastNotificationAt;
+      if (since > pairingWindow() && since <= LATE_LOOKBACK_MS) recordDelay(since);
       const decision = ask({ kind: "default-sound" })?.decision ?? null;
       if (decision) signal({ type: "unpaired", url, ...meta, background: inBackground() });
       return decision;

@@ -16,6 +16,10 @@ export function healthMessage(health, now) {
       };
     case "no-sound":
       return { level: status.level, text: S.healthNoSound };
+    case "play-blocked":
+      return { level: status.level, text: S.healthPlayBlocked };
+    case "list-unreadable":
+      return { level: status.level, text: S.healthListUnreadable };
     case "play-failed":
       return { level: status.level, text: S.healthPlayFailed };
     case "titles-generic":

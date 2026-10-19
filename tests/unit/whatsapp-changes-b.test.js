@@ -184,7 +184,7 @@ describe("B5: never silent by accident when our sound cannot play", () => {
       await h.boot(engine(false));
       h.ask(notification());
       await h.flush();
-      expect(healthStatus(h.data.health).code).toBe("play-failed");
+      expect(healthStatus(h.data.health).code).toBe("play-blocked");
     });
 
     it("tells the status line when our sound failed after WhatsApp's was already muted", async () => {
@@ -206,9 +206,9 @@ describe("B5: never silent by accident when our sound cannot play", () => {
   describe("the status line", () => {
     it("explains what to do", () => {
       const health = applySignal(emptyHealth(), { type: "play-blocked" }, 1);
-      expect(healthStatus(health)).toMatchObject({ code: "play-failed", level: "warn" });
-      expect(healthMessage(health, 2)).toEqual({ level: "warn", text: S.healthPlayFailed });
-      expect(S.healthPlayFailed).toMatch(/click/i);
+      expect(healthStatus(health)).toMatchObject({ code: "play-blocked", level: "warn" });
+      expect(healthMessage(health, 2)).toEqual({ level: "warn", text: S.healthPlayBlocked });
+      expect(S.healthPlayBlocked).toMatch(/click/i);
     });
 
     it("is cleared by a sound that played", () => {
