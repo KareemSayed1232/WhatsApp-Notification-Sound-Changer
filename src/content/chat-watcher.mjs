@@ -4,6 +4,7 @@ import { findChatPane, readChatNames, scanChatList } from "./chat-list.mjs";
 
 const CHUNK = 100;
 const DEBOUNCE_MS = 1500;
+const BOOT_RETRY_MS = 1000;
 
 /**
  * Content-script side of "list all my chats": quietly reports chat names as WhatsApp renders them,
@@ -110,7 +111,15 @@ export function startChatWatcher({
   document.addEventListener(EVENT_REPLACE, stop);
   chrome.runtime.onMessage.addListener(onMessage);
 
-  bootObserver = new MutationObserverCtor(() => attach());
+  // While WhatsApp loads, the page changes constantly: look for the chat list at most once a second.
+  let bootTimer = null;
+  bootObserver = new MutationObserverCtor(() => {
+    if (stopped || paneObserver || bootTimer !== null) return;
+    bootTimer = setTimeoutFn(() => {
+      bootTimer = null;
+      if (!stopped && !paneObserver) attach();
+    }, BOOT_RETRY_MS);
+  });
   if (!attach()) bootObserver.observe(document.documentElement, { childList: true, subtree: true });
 
   return { stop, flush };

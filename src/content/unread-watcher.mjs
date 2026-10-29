@@ -1,6 +1,10 @@
 import { findChatPane, readUnreadCounts } from "./chat-list.mjs";
 
-const DEBOUNCE_MS = 150;
+// WhatsApp's list changes many times a second (typing, "online", times): read it at most this
+// often. Slower while WhatsApp is not on screen (only mutes are learned then).
+const READ_EVERY_MS = 400;
+const READ_EVERY_HIDDEN_MS = 1500;
+const BOOT_RETRY_MS = 1000;
 // After the user scrolls the chat list or searches it, rows appear that already carry unread
 // counters. Those are not new messages, so changes this soon after are only remembered.
 const QUIET_AFTER_USER_MS = 1000;
@@ -87,7 +91,7 @@ export function startUnreadWatcher({
 
   function schedule() {
     if (stopped || timer !== null) return;
-    timer = setTimeoutFn(check, DEBOUNCE_MS);
+    timer = setTimeoutFn(check, isFocused() ? READ_EVERY_MS : READ_EVERY_HIDDEN_MS);
   }
 
   // WhatsApp may re-render the list, so look it up each time rather than keep an old element.
@@ -128,7 +132,7 @@ export function startUnreadWatcher({
       bootTimer = setTimeoutFn(() => {
         bootTimer = null;
         if (!paneObserver && !stopped) attach();
-      }, DEBOUNCE_MS);
+      }, BOOT_RETRY_MS);
     });
     bootObserver.observe(document.documentElement ?? document, { childList: true, subtree: true });
   }

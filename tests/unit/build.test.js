@@ -15,7 +15,7 @@ const BUNDLES = [
   "ui/options.js",
   "ui/upload.js",
 ];
-const TARGETS = ["chromium", "firefox", "safari"];
+const TARGETS = ["chromium", "firefox"];
 
 const built = new Map();
 /** Build a target once per test file and reuse it (the OS cleans the temp dir). */
@@ -122,7 +122,7 @@ describe("the same code runs on every browser", () => {
 
   it("only differs by manifest in what each browser needs to load it", async () => {
     const chromium = await manifestOf("chromium");
-    for (const target of ["firefox", "safari"]) {
+    for (const target of ["firefox"]) {
       const other = await manifestOf(target);
       expect(other.content_scripts).toEqual(chromium.content_scripts);
       expect(other.permissions).toEqual(chromium.permissions);
@@ -131,7 +131,7 @@ describe("the same code runs on every browser", () => {
     }
   });
 
-  it("exposes all three targets", () => {
+  it("exposes both targets", () => {
     expect(Object.keys(targets).sort()).toEqual([...TARGETS].sort());
   });
 
@@ -167,11 +167,8 @@ describe("browser-specific manifests", () => {
     expect(GECKO_ID).toMatch(/^[^@\s]+@[^@\s]+$/);
   });
 
-  it("safari: service worker kept, Safari minimum version, no Chrome-only keys", async () => {
-    const manifest = await manifestOf("safari");
-    expect(manifest.background).toEqual({ service_worker: "background.js" });
-    expect(manifest.minimum_chrome_version).toBeUndefined();
-    expect(manifest.browser_specific_settings).toEqual({ safari: { strict_min_version: "16.4" } });
+  it("builds for Windows and Android only: Chromium browsers and Firefox (macOS dropped)", () => {
+    expect(Object.keys(targets)).toEqual(["chromium", "firefox"]);
   });
 });
 

@@ -27,6 +27,7 @@ const MAX_PAIRING_MS = 2000;
 const MAX_SELF_PLAY_MS = 1000;
 // A known incoming sound this soon after a notification it missed is that notification's, late.
 const LATE_LOOKBACK_MS = 3000;
+const PERMISSION_CACHE_MS = 1000;
 const MAX_LEARNED = 5;
 // Web Audio is only watched once the normal <audio> route has demonstrably stopped producing
 // sounds (this many notifications in a row with none), or has already been seen to work.
@@ -419,13 +420,21 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
 
   if (OriginalNotification) {
     ManagedNotification.prototype = OriginalNotification.prototype;
+    // WhatsApp may read the permission very often: ask the bridge at most once a second.
+    let permissionAnswer = null;
+    const spoofing = () => {
+      if (!permissionAnswer || now() - permissionAnswer.at >= PERMISSION_CACHE_MS) {
+        permissionAnswer = { at: now(), spoof: ask({ kind: "permission" })?.spoof === true };
+      }
+      return permissionAnswer.spoof;
+    };
     Object.defineProperty(ManagedNotification, "permission", {
-      get: () => (ask({ kind: "permission" })?.spoof ? "granted" : OriginalNotification.permission),
+      get: () => (spoofing() ? "granted" : OriginalNotification.permission),
       enumerable: true,
       configurable: true,
     });
     ManagedNotification.requestPermission = function requestPermission(callback) {
-      if (ask({ kind: "permission" })?.spoof) {
+      if (spoofing()) {
         if (typeof callback === "function") callback("granted");
         return Promise.resolve("granted");
       }

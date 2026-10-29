@@ -10,7 +10,6 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  * Build every browser target and zip each one for its store:
  *   chromium -> Chrome Web Store, Edge Add-ons, Opera add-ons (and sideloading in Brave/Vivaldi)
  *   firefox  -> addons.mozilla.org
- *   safari   -> not a store package: wrap with Apple's converter on a Mac
  * Output: dist/packages/<name>-<version>-<target>.zip
  */
 export async function packageAll({ names = Object.keys(targets), artifactsDir } = {}) {

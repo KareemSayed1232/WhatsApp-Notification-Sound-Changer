@@ -422,7 +422,10 @@ export function startBridge({
   function noteNotification({ title, tag }) {
     const name = cleanDisplayName(title);
     if (!name) return;
-    titlesSeen.add(name);
+    if (!titlesSeen.has(name)) {
+      titlesSeen.add(name);
+      knownNamesCache = null;
+    }
     if (tag) lastIdForName.set(normalizeName(name), tag);
     try {
       onNotification({ title: name, tag });
@@ -432,7 +435,17 @@ export function startBridge({
   }
 
   /** Every chat name the extension knows: rules, saved chats, recent chats, this session. */
+  let knownNamesCache = null;
+  let knownNamesState = null;
   function knownChatNames() {
+    // The same list is handed back until the state or the names seen change.
+    if (knownNamesCache && knownNamesState === state) return knownNamesCache;
+    knownNamesState = state;
+    knownNamesCache = buildKnownChatNames();
+    return knownNamesCache;
+  }
+
+  function buildKnownChatNames() {
     const names = new Set(titlesSeen);
     for (const rule of state?.rules ?? []) {
       if (rule?.kind === "chat" && typeof rule.match === "string") names.add(rule.match);

@@ -53,16 +53,31 @@ function depthOf(node) {
   return level;
 }
 
-/** The leaf-most elements under `root` whose text (or title) is one of `names`. */
+const SHOW_TEXT = 4; // NodeFilter.SHOW_TEXT
+
+/**
+ * The leaf-most elements under `root` whose title or own text is one of `names`, in page
+ * order. Looks only at title attributes and text nodes: never at the combined text of large page
+ * sections, which would cost far more on WhatsApp's big page.
+ */
 function knownNameElements(root, names) {
   if (!root || names.size === 0) return [];
-  const isKnown = (el) => {
-    const text = textOf(el);
-    return text.length > 0 && text.length <= MAX_NAME_LENGTH && names.has(normalizeName(text));
+  const found = new Set();
+  const consider = (el, text) => {
+    const clean = cleanDisplayName(text ?? "");
+    if (el && clean && clean.length <= MAX_NAME_LENGTH && names.has(normalizeName(clean))) {
+      found.add(el);
+    }
   };
-  return [...root.querySelectorAll("*")].filter(
-    (el) => isKnown(el) && ![...el.children].some(isKnown)
-  );
+  for (const el of root.querySelectorAll("[title]")) consider(el, el.getAttribute("title"));
+  const walker = (root.ownerDocument ?? root).createTreeWalker(root, SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.nodeValue.length <= MAX_NAME_LENGTH * 2) consider(node.parentElement, node.nodeValue);
+  }
+  const all = [...found];
+  return all
+    .filter((el) => !all.some((other) => other !== el && el.contains(other)))
+    .sort((a, b) => (a.compareDocumentPosition(b) & FOLLOWING ? -1 : 1));
 }
 
 /**
@@ -110,10 +125,19 @@ export function createPageModel({
   const trusted = sanitizeLearned(learned);
   const candidates = { name: null, counter: null };
 
-  const names = () =>
-    new Set(
-      (knownNames() ?? []).map((n) => normalizeName(typeof n === "string" ? n : "")).filter(Boolean)
-    );
+  // Tidied once per list of names (the bridge hands back the same list until it changes).
+  let namesFrom = null;
+  let namesSet = new Set();
+  const names = () => {
+    const source = knownNames() ?? [];
+    if (source !== namesFrom) {
+      namesFrom = source;
+      namesSet = new Set(
+        source.map((n) => normalizeName(typeof n === "string" ? n : "")).filter(Boolean)
+      );
+    }
+    return namesSet;
+  };
   const body = () => document.body ?? document.documentElement;
 
   /** The element whose changes mean the chat list changed, or null. */
@@ -275,7 +299,7 @@ export function createPageModel({
     try {
       const key = normalizeName(typeof title === "string" ? title : "");
       if (!key) return;
-      const known = names();
+      const known = new Set(names());
       known.add(key);
       for (const row of rows(known).rows) {
         if (isNotAChat(row)) continue;

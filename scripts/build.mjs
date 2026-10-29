@@ -62,13 +62,6 @@ export const targets = {
       gecko_android: { strict_min_version: "142.0" },
     },
   }),
-
-  // Safari 16.4+ (macOS/iOS). The folder must be wrapped with Apple's converter on a Mac:
-  //   xcrun safari-web-extension-converter dist/safari
-  safari: (manifest) => ({
-    ...omit(manifest, "minimum_chrome_version"),
-    browser_specific_settings: { safari: { strict_min_version: "16.4" } },
-  }),
 };
 
 export async function build(target, { outDir = path.join(root, "dist", target) } = {}) {

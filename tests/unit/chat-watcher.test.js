@@ -73,6 +73,7 @@ describe("passive watching", () => {
     expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
     document.body.innerHTML = pane("Mom");
     mutate();
+    runTimers(); // the lookup waits a moment (at most once a second while WhatsApp loads)
     expect(sentNames()).toEqual(["Mom"]);
   });
 
