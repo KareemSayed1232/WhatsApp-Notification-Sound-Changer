@@ -54,8 +54,9 @@ The hook is checked every 30 seconds with a ping, so a change that happens mid-s
 - A new sound host/type: widen `SOUND_HOST` / `SOUND_FILE` in `src/core/protocol.mjs`.
 - A new sound route: add a wrapper in `installMainHook`, following `wrappedStart`, and a scenario in
   `tests/unit/main-hook-resilience.test.js`.
-- A new chat-list structure: add a selector in `src/content/chat-list.mjs` and a case in
-  `tests/unit/health-wiring.test.js`.
+- A new chat-list structure: capture it, add it to `tests/fixtures/whatsapp-chat-list.html` or as
+  a new variant in `tests/unit/markup-contract.test.js`, and make the contract pass (usually in
+  `src/content/page-model.mjs`). The contract runs every reader against every variant.
 
 Every change should start as a failing scenario in `tests/unit/main-hook-resilience.test.js` that models
 what WhatsApp now does, so the same break cannot come back unnoticed.

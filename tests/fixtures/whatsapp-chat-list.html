@@ -1,0 +1,108 @@
+<!doctype html>
+<!--
+  WhatsApp Web's chat list, rebuilt from markup captured on the owner's WhatsApp (Edge 155 and
+  Firefox 158, October 2026). Chat names, previews and times are changed. Used by
+  tests/unit/markup-contract.test.js, which also derives "WhatsApp renamed everything" variants.
+-->
+<html>
+  <body>
+    <div id="app">
+      <div id="side">
+        <header><span>Chats</span></header>
+        <div id="pane-side" aria-label="Chat list">
+          <div role="grid" aria-label="Chat list" data-testid="chat-list">
+            <button aria-label="Locked chats" type="button">
+              <div data-testid="cell-frame-container">
+                <div data-testid="cell-frame-title">
+                  <span dir="auto" title="Locked chats">Locked chats</span>
+                </div>
+              </div>
+            </button>
+            <button
+              aria-label="Archived"
+              data-testid="chatlist-panel-archived-button"
+              type="button"
+            >
+              <div data-testid="cell-frame-container">
+                <div data-testid="cell-frame-title">
+                  <span dir="auto" title="Archived">Archived</span>
+                </div>
+                <span data-testid="icon-unread-count" aria-label="2 unread messages">2</span>
+              </div>
+            </button>
+            <div role="row">
+              <div role="gridcell" tabindex="0">
+                <div data-testid="cell-frame-container">
+                  <div data-testid="cell-frame-title">
+                    <span dir="auto" title="Amaal">Amaal</span>
+                  </div>
+                  <div data-testid="cell-frame-primary-detail">
+                    <div data-testid="chat-list-timestamp">12:30</div>
+                  </div>
+                  <div data-testid="cell-frame-secondary">
+                    <span data-testid="last-msg-status"
+                      ><span dir="auto" title="Photo">Photo</span></span
+                    >
+                    <span data-testid="icon-unread-count" aria-label="1 unread message">1</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div role="row">
+              <div role="gridcell" tabindex="0">
+                <div data-testid="cell-frame-container">
+                  <div data-testid="cell-frame-title">
+                    <span dir="auto" title="Mohanad">Mohanad</span>
+                  </div>
+                  <div data-testid="cell-frame-primary-detail">
+                    <div data-testid="chat-list-timestamp">Yesterday</div>
+                  </div>
+                  <div data-testid="cell-frame-secondary">
+                    <span data-testid="last-msg-status"><span dir="auto" title=".">.</span></span>
+                    <span data-testid="mute-notifications-refreshed" aria-label="Muted chat"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div role="row">
+              <div role="gridcell" tabindex="0">
+                <div data-testid="cell-frame-container">
+                  <div data-testid="cell-frame-title"><span dir="auto" title="انا">انا</span></div>
+                  <div data-testid="cell-frame-primary-detail">
+                    <div data-testid="chat-list-timestamp">10/18/2026</div>
+                  </div>
+                  <div data-testid="cell-frame-secondary">
+                    <span data-testid="last-msg-status"
+                      ><span dir="auto" title="انتي بتبقي">انتي بتبقي</span></span
+                    >
+                    <span data-testid="icon-unread-count" aria-label="14 unread messages">14</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div role="row">
+              <div role="gridcell" tabindex="0">
+                <div data-testid="cell-frame-container">
+                  <div data-testid="cell-frame-title">
+                    <span dir="auto" title="Family">Family</span>
+                  </div>
+                  <div data-testid="cell-frame-primary-detail">
+                    <div data-testid="chat-list-timestamp">09:15</div>
+                  </div>
+                  <div data-testid="cell-frame-secondary">
+                    <span data-testid="last-msg-status"
+                      ><span dir="auto" title="Bob: hi">Bob: hi</span></span
+                    >
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="main">
+        <header><span dir="auto" title="Amaal">Amaal</span></header>
+      </div>
+    </div>
+  </body>
+</html>
