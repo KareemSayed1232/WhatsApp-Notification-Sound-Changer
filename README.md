@@ -62,7 +62,15 @@ offers an **Open WhatsApp** button.
 - **Firefox needs one click** in the WhatsApp tab after it loads (see above).
 - **While WhatsApp is the focused window**, WhatsApp doesn't say which chat a message is from, so
   you hear your default sound (Firefox makes no sound there at all, like WhatsApp itself).
-- **Chats added by name** are tied to the right chat when that chat first messages you.
+- **Chats added by name** show "Waiting for first message" until that chat messages you; the
+  sound is then tied to that chat.
+- **Two chats with the same name:** a sound added by name goes to whichever of them messages
+  first. The other one keeps WhatsApp's sound (or your default). WhatsApp Web shows no chat ids on
+  the page, so the two can't be told apart before they message. Pick the sound from the chat's
+  own row once it has messaged instead.
+- **No sound from WhatsApp, no sound from the extension.** WhatsApp sometimes plays nothing: muted
+  chats (except @mentions), and further quick messages in the same chat. The extension only
+  replaces sounds WhatsApp actually makes, so it is silent then too.
 - **WhatsApp Web changes without notice.** The extension is built to adapt (see
   [what it depends on](docs/WEAK-POINTS.md)). If it stops working, the status line says so.
 - **Android is experimental.** WhatsApp Web needs Firefox's _Desktop site_, and Android pauses
