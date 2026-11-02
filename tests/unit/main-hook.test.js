@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { withPageSounds } from "../helpers/page-sounds.js";
 import { freshDocument } from "../helpers/load-script.js";
 import { installMainHook } from "../../src/content/main-hook.mjs";
 import { EVENT_ANSWER, EVENT_ASK, EVENT_PLAY } from "../../src/core/protocol.mjs";
@@ -62,6 +63,7 @@ beforeEach(() => {
   playEvents = [];
   doc.addEventListener(EVENT_PLAY, (event) => playEvents.push(JSON.parse(event.detail)));
   hook = installMainHook({ window: win, document: doc, now: () => clock.t });
+  withPageSounds(win, doc);
 });
 
 describe("permission spoofing", () => {
@@ -156,7 +158,7 @@ describe("sound replacement", () => {
     await play();
 
     expect(FakeMedia.nativePlays).toEqual([]);
-    expect(playEvents).toEqual([{ soundId: "s1", volume: 0.5 }]);
+    expect(playEvents).toEqual([expect.objectContaining({ soundId: "s1", volume: 0.5 })]);
   });
 
   it("blocks the sound entirely for a silent decision", async () => {
@@ -203,7 +205,7 @@ describe("sound replacement", () => {
     );
     await play();
     expect(asked).toEqual([{ kind: "default-sound" }]);
-    expect(playEvents).toEqual([{ soundId: "d", volume: 1 }]);
+    expect(playEvents).toEqual([expect.objectContaining({ soundId: "d", volume: 1 })]);
     expect(FakeMedia.nativePlays).toEqual([]);
   });
 
@@ -224,7 +226,7 @@ describe("sound replacement", () => {
     expect(playEvents).toEqual([]);
 
     await play();
-    expect(playEvents).toEqual([{ soundId: "s1", volume: 1 }]);
+    expect(playEvents).toEqual([expect.objectContaining({ soundId: "s1", volume: 1 })]);
   });
 
   it("returns a promise like the native play()", () => {

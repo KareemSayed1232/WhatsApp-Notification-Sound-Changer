@@ -4,3 +4,6 @@ dist/
 coverage/
 *.zip
 *.xpi
+graphify-out/
+.old-build/
+.backup-before-rebuild/

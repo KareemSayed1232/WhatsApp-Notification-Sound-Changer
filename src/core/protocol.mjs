@@ -20,6 +20,11 @@ export const EVENT_PING = "wansc:ping";
 export const EVENT_PONG = "wansc:pong";
 // Bridge -> hook: play WhatsApp's own incoming-message sound (used while WhatsApp is focused, so
 // every browser sounds the same even where WhatsApp itself plays nothing).
+// Bridge -> hook: we are playing a sound ourselves; keep WhatsApp's own incoming sound quiet for
+// { ms } (capped by the hook).
+export const EVENT_QUIET = "wansc:quiet";
+// Bridge -> hook: the sounds in use, { sounds: [{ id, dataUrl }] }, played by the hook itself.
+export const EVENT_SOUNDS = "wansc:sounds";
 export const EVENT_PLAY_NATIVE = "wansc:play-native";
 
 // chrome.runtime messages from the bridge to the background worker.
@@ -29,6 +34,10 @@ export const MSG_SEEN = "wansc:seen";
 export const MSG_CHATS = "wansc:chats";
 // Extension page -> content script in the WhatsApp tab: scroll through the chat list and report it.
 export const MSG_SCAN = "wansc:scan-chats";
+// Extension page -> content script: the chat list's layout, with names and messages replaced.
+export const MSG_LAYOUT = "wansc:layout";
+// Extension page -> content script: check every piece the extension relies on (self-test.mjs).
+export const MSG_SELF_TEST = "wansc:self-test";
 // Content script -> background: WhatsApp gave a chat a new kind of id; move the rule onto it.
 export const MSG_REBIND = "wansc:rebind-rule";
 // chrome.storage.local key for what the content script learned about WhatsApp's page.

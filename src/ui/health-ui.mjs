@@ -1,4 +1,6 @@
 import { HEALTH_KEY, buildDiagnostics, healthStatus } from "../core/health.mjs";
+import { MSG_LAYOUT, MSG_SELF_TEST, WHATSAPP_MATCH } from "../core/protocol.mjs";
+import { openWhatsAppTab } from "./chat-actions.mjs";
 import { h } from "./dom.mjs";
 import { STRINGS as S } from "./strings.mjs";
 import { formatAgo } from "./view-model.mjs";
@@ -16,6 +18,8 @@ export function healthMessage(health, now) {
       };
     case "no-sound":
       return { level: status.level, text: S.healthNoSound };
+    case "audio-locked":
+      return { level: status.level, text: S.healthAudioLocked };
     case "play-blocked":
       return { level: status.level, text: S.healthPlayBlocked };
     case "list-unreadable":
@@ -53,6 +57,18 @@ export function mountHealth({
   const el = (tag, props, ...kids) => h(document, tag, props, ...kids);
 
   const line = el("p", { class: "health health-idle", id: "healthLine", role: "status" });
+  // When the browser is waiting for a click in WhatsApp, take the user straight there.
+  const openButton = el(
+    "button",
+    {
+      class: "btn btn-primary btn-small",
+      id: "openWhatsApp",
+      type: "button",
+      hidden: true,
+      onClick: () => openWhatsAppTab(chrome).then(() => win.close?.()),
+    },
+    S.openWhatsApp
+  );
   const report = el("textarea", {
     id: "diagnosticsText",
     class: "diagnostics-text",
@@ -94,11 +110,91 @@ export function mountHealth({
     note.hidden = false;
   }
 
+  const selfTestResults = el("ul", { class: "self-test", id: "selfTestResults", hidden: true });
+
+  function tell(text) {
+    note.textContent = text;
+    note.hidden = false;
+  }
+
+  /** The WhatsApp tab (the active one if several), or null. */
+  async function whatsappTab() {
+    const tabs = await chrome.tabs.query({ url: WHATSAPP_MATCH });
+    return tabs.find((t) => t.active) ?? tabs[0] ?? null;
+  }
+
+  /** Ask the WhatsApp tab to check everything the extension relies on, and list the results. */
+  async function onRunSelfTest() {
+    selfTestResults.hidden = true;
+    let answer = null;
+    try {
+      const tab = await whatsappTab();
+      if (!tab) return tell(S.scanNoTab);
+      answer = await chrome.tabs.sendMessage(tab.id, { type: MSG_SELF_TEST });
+    } catch {
+      answer = null;
+    }
+    if (!answer?.ok || !Array.isArray(answer.checks)) return tell(S.scanNotReady);
+    selfTestResults.replaceChildren(
+      ...answer.checks.map((c) =>
+        el(
+          "li",
+          { class: c.ok ? "pass" : "fail" },
+          `${c.ok ? "✓" : "✗"} ${S.selfTestNames[c.id] ?? c.id}`,
+          c.detail ? el("span", { class: "meta" }, ` (${c.detail})`) : null
+        )
+      )
+    );
+    selfTestResults.hidden = false;
+    tell(answer.checks.every((c) => c.ok) ? S.selfTestAllPassed : S.selfTestSomeFailed);
+  }
+
+  /** The chat list's layout from the WhatsApp tab, names replaced, copied for a report. */
+  async function onCopyLayout() {
+    let text = null;
+    try {
+      const tabs = await chrome.tabs.query({ url: WHATSAPP_MATCH });
+      const tab = tabs.find((t) => t.active) ?? tabs[0];
+      if (!tab) {
+        note.textContent = S.scanNoTab;
+        note.hidden = false;
+        return;
+      }
+      const answer = await chrome.tabs.sendMessage(tab.id, { type: MSG_LAYOUT });
+      if (answer?.ok) {
+        const version = chrome?.runtime?.getManifest?.().version ?? "unknown";
+        text = `<!-- ${S.appName} ${version}: WhatsApp chat list layout, names and messages replaced -->
+${answer.html}`;
+      }
+    } catch {
+      text = null;
+    }
+    if (!text) {
+      note.textContent = S.layoutFailed;
+      note.hidden = false;
+      return;
+    }
+    try {
+      await win.navigator.clipboard.writeText(text);
+      report.hidden = true;
+      note.textContent = S.layoutCopied;
+    } catch {
+      report.value = text;
+      report.hidden = false;
+      report.select?.();
+      note.textContent = S.diagnosticsManual;
+    }
+    note.hidden = false;
+  }
+
   async function render() {
     try {
-      const { level, text } = healthMessage(await stateStore.loadHealth(), now());
+      const health = await stateStore.loadHealth();
+      const { level, text } = healthMessage(health, now());
       line.className = `health health-${level}`;
       line.textContent = text;
+      const code = healthStatus(health).code;
+      openButton.hidden = code !== "audio-locked" && code !== "play-blocked";
     } catch {
       // The status line is a nicety: leave whatever it showed.
     }
@@ -113,10 +209,12 @@ export function mountHealth({
     "div",
     { class: "health-block" },
     line,
+    openButton,
     diagnostics
       ? el(
-          "div",
+          "details",
           { class: "health-tools" },
+          el("summary", {}, S.troubleshooting),
           el("p", { class: "hint" }, S.diagnosticsHint),
           el(
             "button",
@@ -127,6 +225,29 @@ export function mountHealth({
               onClick: onCopy,
             },
             S.copyDiagnostics
+          ),
+          el("p", { class: "hint" }, S.selfTestHint),
+          el(
+            "button",
+            {
+              class: "btn btn-secondary btn-small",
+              id: "runSelfTest",
+              type: "button",
+              onClick: onRunSelfTest,
+            },
+            S.runSelfTest
+          ),
+          selfTestResults,
+          el("p", { class: "hint" }, S.layoutHint),
+          el(
+            "button",
+            {
+              class: "btn btn-secondary btn-small",
+              id: "copyLayout",
+              type: "button",
+              onClick: onCopyLayout,
+            },
+            S.copyLayout
           ),
           note,
           report

@@ -1,6 +1,7 @@
 import { normalizeName } from "../core/normalize.mjs";
-import { EVENT_REPLACE, MSG_CHATS, MSG_SCAN } from "../core/protocol.mjs";
+import { EVENT_REPLACE, MSG_CHATS, MSG_LAYOUT, MSG_SCAN } from "../core/protocol.mjs";
 import { findChatPane, readChatNames, scanChatList } from "./chat-list.mjs";
+import { captureLayout } from "./layout-capture.mjs";
 
 const CHUNK = 100;
 const DEBOUNCE_MS = 1500;
@@ -82,7 +83,18 @@ export function startChatWatcher({
   }
 
   function onMessage(message, sender, sendResponse) {
-    if (message?.type !== MSG_SCAN || sender?.id !== chrome.runtime.id) return false;
+    if (sender?.id !== chrome.runtime.id) return false;
+    if (message?.type === MSG_LAYOUT) {
+      let html = null;
+      try {
+        html = captureLayout({ document, findPane });
+      } catch {
+        html = null;
+      }
+      sendResponse(html ? { ok: true, html } : { ok: false, reason: "no-chat-list" });
+      return false;
+    }
+    if (message?.type !== MSG_SCAN) return false;
     Promise.resolve(scan({ document, readNames, findPane })).then(
       (result) => {
         for (const name of result.names) sent.add(normalizeName(name));

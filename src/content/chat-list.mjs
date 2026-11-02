@@ -1,4 +1,9 @@
-import { cleanDisplayName, normalizeName } from "../core/normalize.mjs";
+import {
+  cleanDisplayName,
+  isCountOrTime,
+  looksLikeChatName,
+  normalizeName,
+} from "../core/normalize.mjs";
 
 // WhatsApp Web's own markup. It is not a public API and can change, so every lookup has fallbacks
 // and the caller treats "found nothing" as an expected outcome, not an error.
@@ -48,12 +53,26 @@ export function isNotAChat(row) {
   return NOT_A_CHAT.test(label);
 }
 
+/** Is this element the unread badge (or inside it)? Its text is a count, never a name. */
+function isBadge(el) {
+  return Boolean(el.closest?.(UNREAD_SELECTOR));
+}
+
 function nameFromRow(row) {
   if (isNotAChat(row)) return "";
+  const textOf = (el) => cleanDisplayName(el.getAttribute("title") || el.textContent);
   for (const selector of TITLE_SELECTORS) {
-    const el = row.querySelector(selector);
-    const name = cleanDisplayName(el?.getAttribute("title") || el?.textContent);
-    if (name) return name;
+    // The first titled text that is not the unread badge, a count or a time is the name, or the
+    // row has none: the message preview further on must never be taken for it.
+    // The badge's label is in the UI language, but its text is always just the number.
+    const el = [...row.querySelectorAll(selector)].find(
+      (candidate) =>
+        !isBadge(candidate) &&
+        !isCountOrTime(textOf(candidate)) &&
+        !/^\d+$/.test((candidate.textContent ?? "").trim())
+    );
+    const name = el ? textOf(el) : "";
+    if (looksLikeChatName(name)) return name;
   }
   return "";
 }
@@ -67,7 +86,7 @@ export function readChatNames(root) {
   const seen = new Set();
   const add = (name) => {
     const key = normalizeName(name);
-    if (!name || name.length > MAX_NAME_LENGTH || seen.has(key)) return;
+    if (!looksLikeChatName(name) || name.length > MAX_NAME_LENGTH || seen.has(key)) return;
     seen.add(key);
     names.push(name);
   };
@@ -91,7 +110,10 @@ export const UNREAD_LABEL = /\bunread\b/i;
 // A muted chat's row carries <… data-testid="mute-notifications-refreshed" aria-label="Muted chat">
 // (captured Oct 2026). Any test id or icon mentioning "mute" counts, so a renamed marker still
 // does; the English label is a last fallback.
-export const MUTED_MARKER = '[data-testid*="mute" i], [data-icon*="mute" i]';
+// "unmute"/"unmuted" icons contain "mute" too, and mean the opposite.
+export const MUTED_MARKER =
+  '[data-testid*="mute" i]:not([data-testid*="unmute" i]), ' +
+  '[data-icon*="mute" i]:not([data-icon*="unmute" i])';
 export const MUTED_LABEL = '[aria-label="Muted chat" i]';
 const MUTED_SELECTOR = `${MUTED_MARKER}, ${MUTED_LABEL}`;
 

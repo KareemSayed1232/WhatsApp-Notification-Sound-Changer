@@ -149,16 +149,6 @@ describe("the upload window", () => {
     });
   });
 
-  it("works for a person inside a group", async () => {
-    await open("sender|bob", {
-      initial: { recentSenders: [{ name: "Bob", kind: "sender", lastSeen: 1 }] },
-    });
-    chooseFile(fakeFile("hey.mp3"));
-    await vi.waitFor(async () =>
-      expect((await store.load()).rules[0]).toMatchObject({ kind: "sender", match: "Bob" })
-    );
-  });
-
   it("ignores a cancelled picker (no file)", async () => {
     await open("chat|radwa");
     Object.defineProperty($("#soundFile"), "files", { value: [], configurable: true });

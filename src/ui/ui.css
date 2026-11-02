@@ -406,6 +406,25 @@ details.add-by-name[open] summary {
 .health-bad {
   color: var(--text);
 }
+/* Whether a chat sound is tied to the chat's id yet (see strings: linked / waitingLink). */
+.link-status {
+  display: block;
+  font-size: 12px;
+}
+.link-status.is-waiting {
+  opacity: 0.75;
+}
+
+.self-test {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+.self-test .fail {
+  color: var(--danger, #b3261e);
+}
 .health-tools {
   display: grid;
   gap: 8px;

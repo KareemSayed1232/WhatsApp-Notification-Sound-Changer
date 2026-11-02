@@ -1,8 +1,8 @@
 {
   "name": "whatsapp-notification-sound-changer",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
-  "description": "Browser extension: custom (and per-contact) notification sounds for WhatsApp Web",
+  "description": "Browser extension: a different notification sound for each WhatsApp Web chat",
   "license": "GPL-3.0-only",
   "type": "module",
   "engines": {

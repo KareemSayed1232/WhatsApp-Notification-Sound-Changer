@@ -1,13 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { freshDocument } from "../helpers/load-script.js";
-import { startBridge } from "../../src/content/bridge.mjs";
 import { installMainHook } from "../../src/content/main-hook.mjs";
 import {
   EVENT_ANSWER,
   EVENT_ASK,
-  EVENT_PING,
   EVENT_PLAY_NATIVE,
-  EVENT_PONG,
   KNOWN_INCOMING_SOUND_URL,
 } from "../../src/core/protocol.mjs";
 
@@ -85,8 +82,11 @@ describe("the hook plays WhatsApp's own ding when asked", () => {
         );
       }
     });
-    new win.Notification("Radwa", { tag: "1@lid", silent: true });
-    await new FakeMedia(RENAMED).play();
+    // Twice: one time could be another WhatsApp sound (e.g. "message sent").
+    for (let i = 0; i < 2; i++) {
+      new win.Notification("Radwa", { tag: "1@lid", silent: true });
+      await new FakeMedia(RENAMED).play();
+    }
     played = [];
     askForDing();
     expect(played).toEqual([RENAMED]);
@@ -124,206 +124,3 @@ describe("the hook plays WhatsApp's own ding when asked", () => {
 });
 
 // ------------------------------------------------------------------ the bridge decides
-
-describe("the bridge gives focused messages the same sound on every browser", () => {
-  const sounds = {
-    s1: { id: "s1", name: "Default", mime: "audio/mpeg", size: 3 },
-    s2: { id: "s2", name: "Radwa", mime: "audio/mpeg", size: 3 },
-  };
-  const radwaRule = (action = "sound") => ({
-    id: "r1",
-    kind: "chat",
-    match: "Radwa",
-    chatId: "1@lid",
-    action,
-    soundId: action === "sound" ? "s2" : null,
-    enabled: true,
-  });
-  let doc;
-  let bridge;
-  let engine;
-  let dings;
-  let focused;
-
-  let logged;
-  async function boot({
-    defaultSoundId = null,
-    canPlay = true,
-    rules = [radwaRule()],
-    played = true,
-  } = {}) {
-    logged = [];
-    const data = {
-      settings: { enabled: true, volume: 1, defaultSoundId, showPopups: false },
-      sounds,
-      rules,
-    };
-    doc = freshDocument();
-    doc.addEventListener(EVENT_PING, () =>
-      doc.dispatchEvent(
-        new CustomEvent(EVENT_PONG, { detail: JSON.stringify({ notification: true, play: true }) })
-      )
-    );
-    dings = 0;
-    doc.addEventListener(EVENT_PLAY_NATIVE, () => (dings += 1));
-    engine = { play: vi.fn(async () => played), invalidate: vi.fn(), canPlay: () => canPlay };
-    bridge = startBridge({
-      chrome: {
-        storage: {
-          local: {
-            get: vi.fn(async (keys) =>
-              Object.fromEntries(keys.filter((k) => k in data).map((k) => [k, data[k]]))
-            ),
-            set: vi.fn(async () => {}),
-          },
-          onChanged: { addListener: () => {}, removeListener: () => {} },
-        },
-        runtime: { id: "ext", sendMessage: vi.fn(async () => ({ ok: true })) },
-      },
-      document: doc,
-      engine,
-      CustomEventCtor: CustomEvent,
-      isFocused: () => focused,
-      log: (...args) => logged.push(args.map(String).join(" ")),
-    });
-    await bridge.ready;
-  }
-
-  /** WhatsApp (Edge) plays its own sound while focused: the hook asks what to do. */
-  function whatsappPlaysItsSound() {
-    let answer = null;
-    const onAnswer = (e) => (answer = JSON.parse(e.detail));
-    doc.addEventListener(EVENT_ANSWER, onAnswer);
-    doc.dispatchEvent(
-      new CustomEvent(EVENT_ASK, { detail: JSON.stringify({ kind: "default-sound" }) })
-    );
-    doc.removeEventListener(EVENT_ANSWER, onAnswer);
-    return answer;
-  }
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    focused = true;
-  });
-  afterEach(() => {
-    bridge?.stop();
-    vi.useRealTimers();
-  });
-
-  describe("Edge: WhatsApp plays its own sound while focused", () => {
-    it("holds WhatsApp's sound back, so the chat's own sound can play instead", async () => {
-      await boot();
-      expect(whatsappPlaysItsSound().decision).toEqual({ action: "silent" });
-    });
-
-    it("plays the chat's own sound as soon as the chat is known (no extra wait)", async () => {
-      await boot({ defaultSoundId: "s1" });
-      whatsappPlaysItsSound();
-      bridge.onIncomingChat("Radwa");
-      await vi.advanceTimersByTimeAsync(50);
-      expect(engine.play).toHaveBeenCalledWith("s2", 1);
-      await vi.advanceTimersByTimeAsync(3_000);
-      expect(engine.play).toHaveBeenCalledTimes(1); // the held sound is not played as well
-      expect(dings).toBe(0);
-    });
-
-    it("plays the default sound for a chat without its own", async () => {
-      await boot({ defaultSoundId: "s1" });
-      whatsappPlaysItsSound();
-      bridge.onIncomingChat("Mom");
-      await vi.advanceTimersByTimeAsync(50);
-      expect(engine.play).toHaveBeenCalledWith("s1", 1);
-    });
-
-    it("plays WhatsApp's ding for a chat without a sound when there is no default", async () => {
-      await boot();
-      whatsappPlaysItsSound();
-      bridge.onIncomingChat("Mom");
-      await vi.advanceTimersByTimeAsync(50);
-      expect(engine.play).not.toHaveBeenCalled();
-      expect(dings).toBe(1);
-    });
-
-    it("if no chat turns up (e.g. the message is in the open chat), plays what it held", async () => {
-      await boot({ defaultSoundId: "s1" });
-      whatsappPlaysItsSound();
-      await vi.advanceTimersByTimeAsync(1_400);
-      expect(engine.play).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(200);
-      expect(engine.play).toHaveBeenCalledWith("s1", 1);
-    });
-
-    it("…or WhatsApp's ding, when there is no default sound", async () => {
-      await boot();
-      whatsappPlaysItsSound();
-      await vi.advanceTimersByTimeAsync(1_600);
-      expect(dings).toBe(1);
-    });
-
-    it("does not hold anything when our audio cannot start yet (WhatsApp's sound plays as before)", async () => {
-      await boot({ canPlay: false });
-      expect(whatsappPlaysItsSound().decision).toEqual({ action: "native" });
-    });
-
-    it("does not hold anything in the background: that path is unchanged", async () => {
-      await boot({ defaultSoundId: "s1" });
-      focused = false;
-      expect(whatsappPlaysItsSound().decision).toMatchObject({ action: "play", soundId: "s1" });
-    });
-  });
-
-  describe("saying what happened to the sound (wanscDebug)", () => {
-    it("says when the browser is still blocking audio", async () => {
-      await boot({ canPlay: false });
-      bridge.onIncomingChat("Radwa");
-      await vi.advanceTimersByTimeAsync(1_000);
-      expect(logged.some((l) => /blocks audio/.test(l))).toBe(true);
-    });
-
-    it("says when the sound started", async () => {
-      await boot();
-      bridge.onIncomingChat("Radwa");
-      await vi.advanceTimersByTimeAsync(1_000);
-      expect(logged.some((l) => /playback of s2 started/.test(l))).toBe(true);
-    });
-
-    it("says when the sound failed", async () => {
-      await boot({ played: false });
-      bridge.onIncomingChat("Radwa");
-      await vi.advanceTimersByTimeAsync(1_000);
-      expect(logged.some((l) => /playback of s2 FAILED/.test(l))).toBe(true);
-    });
-
-    it("says when it plays WhatsApp's own ding", async () => {
-      await boot();
-      bridge.onIncomingChat("Mom");
-      await vi.advanceTimersByTimeAsync(1_000);
-      expect(logged.some((l) => /WhatsApp's own sound/.test(l))).toBe(true);
-    });
-  });
-
-  describe("Firefox: WhatsApp plays nothing while focused", () => {
-    it("plays the chat's own sound", async () => {
-      await boot();
-      bridge.onIncomingChat("Radwa");
-      await vi.advanceTimersByTimeAsync(1_000);
-      expect(engine.play).toHaveBeenCalledWith("s2", 1);
-    });
-
-    it("plays WhatsApp's ding for a chat without a sound when there is no default", async () => {
-      await boot();
-      bridge.onIncomingChat("Mom");
-      await vi.advanceTimersByTimeAsync(1_000);
-      expect(engine.play).not.toHaveBeenCalled();
-      expect(dings).toBe(1);
-    });
-
-    it("plays nothing for a silent chat", async () => {
-      await boot({ rules: [radwaRule("silent")] });
-      bridge.onIncomingChat("Radwa");
-      await vi.advanceTimersByTimeAsync(1_000);
-      expect(engine.play).not.toHaveBeenCalled();
-      expect(dings).toBe(0);
-    });
-  });
-});

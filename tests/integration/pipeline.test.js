@@ -1,7 +1,7 @@
 // @vitest-environment node
 // Runs the REAL built bundles (page-world hook + isolated bridge) together in a DOM and plays the
 // part of WhatsApp: ask for permission, raise a notification, then play the message mp3.
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, onTestFinished } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,8 +9,6 @@ import { JSDOM } from "jsdom";
 import { build } from "../../scripts/build.mjs";
 
 const INCOMING = "https://static.whatsapp.net/rsrc.php/yW/r/BS_BUUXbKq5.mp3";
-const SOUND_BYTES = [1, 2, 3];
-const SOUND_DATA_URL = "data:audio/mpeg;base64,AQID";
 
 let outDir;
 let hookCode;
@@ -84,18 +82,49 @@ async function openTab({ stored = {}, realPermission = "denied" } = {}) {
     state = "running";
     destination = {};
     decodeAudioData(buffer) {
-      return Promise.resolve({ bytes: [...new Uint8Array(buffer)] });
+      // Each test sound's bytes are its id (see get-sound below).
+      return Promise.resolve({ id: String.fromCharCode(...new Uint8Array(buffer)) });
     }
     createGain() {
       return { gain: { value: 1 }, connect() {} };
     }
     createBufferSource() {
-      const source = { connect() {}, stop() {}, start: () => started.push(source) };
+      // Which sound actually started: sounds are fetched in advance now, so a fetch proves nothing.
+      const source = {
+        connect() {},
+        stop() {},
+        start: () => {
+          started.push(source);
+          soundRequests.push(source.buffer?.id);
+        },
+      };
       return source;
     }
     resume() {
       return Promise.resolve();
     }
+  };
+
+  // The page hook plays your sounds itself, in a page player, from blob URLs of the sounds the bridge
+  // handed it. jsdom has no audio and no blob URLs: record which of your sounds actually started.
+  const blobs = new Map();
+  window.URL.createObjectURL = (blob) => {
+    const url = `blob:test/${blobs.size + 1}`;
+    blobs.set(url, blob);
+    return url;
+  };
+  window.URL.revokeObjectURL = () => {};
+  window.HTMLMediaElement.prototype.play = function play() {
+    const blob = blobs.get(this.src);
+    if (blob) {
+      started.push(this);
+      // Each test sound's bytes are its id (jsdom's Blob has no text(): read it like a page would).
+      const reader = new window.FileReader();
+      const list = soundRequests; // this test's list, even if the read finishes after it
+      reader.onload = () => list.push(reader.result);
+      reader.readAsText(blob);
+    }
+    return Promise.resolve();
   };
 
   window.chrome = {
@@ -113,8 +142,7 @@ async function openTab({ stored = {}, realPermission = "denied" } = {}) {
       onMessage: { addListener() {}, removeListener() {} },
       sendMessage: async (message) => {
         if (message.type === "wansc:get-sound") {
-          soundRequests.push(message.soundId);
-          return { ok: true, dataUrl: SOUND_DATA_URL };
+          return { ok: true, dataUrl: `data:audio/mpeg;base64,${window.btoa(message.soundId)}` };
         }
         if (message.type === "wansc:seen") seen.push(...message.items);
         return undefined;
@@ -150,8 +178,7 @@ describe("full pipeline with the real bundles", () => {
     await whatsappPlaysMessageSound();
 
     await vi.waitFor(() => expect(started).toHaveLength(1));
-    expect(started[0].buffer).toEqual({ bytes: SOUND_BYTES });
-    expect(soundRequests).toEqual(["radwa"]);
+    await vi.waitFor(() => expect(soundRequests).toEqual(["radwa"]));
   });
 
   it("still finds the contact after they are renamed, because it matches the chat id", async () => {
@@ -216,6 +243,10 @@ describe("changing settings while WhatsApp stays open", () => {
     changeListeners.forEach((fn) => fn({ settings: {} }, "local"));
     await new Promise((resolve) => window.setTimeout(resolve, 10));
 
+    // The next message comes later (two sounds a moment apart are one message to the sound gate).
+    const start = window.Date.now();
+    const clock = vi.spyOn(window.Date, "now").mockImplementation(() => start + 10_000);
+    onTestFinished(() => clock.mockRestore());
     await whatsappPlaysMessageSound();
     await vi.waitFor(() => expect(soundRequests).toEqual(["default", "radwa"]));
   });

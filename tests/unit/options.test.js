@@ -323,31 +323,8 @@ describe("people inside groups (advanced) and the last-resort box", () => {
     expect($("#people").hidden).toBe(true);
   });
 
-  it("keeps people out of the chat list but lets you search for one and give a sound", async () => {
-    await mount({
-      initial: { recentSenders: [{ name: "Bob", kind: "sender", lastSeen: 5 }, ...recentSenders] },
-      setup: twoSounds,
-    });
-    search("bob");
-    expect(shownNames()).toEqual([]);
-    expect($("#people").hidden).toBe(false);
-
-    const select = $$("#peopleList li")
-      .find((li) => li.textContent.includes("Bob"))
-      .querySelector("select");
-    select.value = "id1";
-    fire(select, "change");
-    await vi.waitFor(async () =>
-      expect((await store.load()).rules[0]).toMatchObject({
-        kind: "sender",
-        match: "Bob",
-        soundId: "id1",
-      })
-    );
-  });
-
   it("describes adding by name as the last resort and says the name must match", () => {
-    expect(text("#addByName summary")).toMatch(/Last resort/);
+    expect(text("#addByName summary")).toBe("Can't find a chat? Add it by name");
     expect(text("#addByName .hint")).toMatch(/must match WhatsApp exactly/);
   });
 });

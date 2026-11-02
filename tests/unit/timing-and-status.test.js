@@ -1,23 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { withPageSounds } from "../helpers/page-sounds.js";
 import { freshDocument } from "../helpers/load-script.js";
-import { startBridge } from "../../src/content/bridge.mjs";
 import { installMainHook } from "../../src/content/main-hook.mjs";
-import { createPageModel } from "../../src/content/page-model.mjs";
 import {
   applySignal,
   buildDiagnostics,
   emptyHealth,
   healthStatus,
-  sanitizeHealth,
 } from "../../src/core/health.mjs";
-import {
-  EVENT_ANSWER,
-  EVENT_ASK,
-  EVENT_PING,
-  EVENT_PLAY,
-  EVENT_PONG,
-  EVENT_SIGNAL,
-} from "../../src/core/protocol.mjs";
+import { EVENT_ANSWER, EVENT_ASK, EVENT_PLAY, EVENT_SIGNAL } from "../../src/core/protocol.mjs";
 import { healthMessage } from "../../src/ui/health-ui.mjs";
 import { STRINGS as S } from "../../src/ui/strings.mjs";
 
@@ -54,6 +45,7 @@ describe("timing that adapts to how fast WhatsApp plays its sound", () => {
 
   function install() {
     hook = installMainHook({ window: win, document: doc, now: () => clock.t });
+    withPageSounds(win, doc);
   }
 
   beforeEach(() => {
@@ -106,32 +98,36 @@ describe("timing that adapts to how fast WhatsApp plays its sound", () => {
     vi.advanceTimersByTime(10_000);
   }
 
-  it("starts with today's half-second window while WhatsApp is fast", async () => {
+  // Since 3.0 a known WhatsApp sound up to 3 s after an unclaimed notification still gets that
+  // chat's sound (late-sounds.test.js), so a slow WhatsApp no longer loses the chat. The window
+  // still decides how long to wait before playing on our own, and is still measured and kept.
+
+  it("starts with today's half-second window, and a later sound still gets the chat's sound", async () => {
     await message(20); // WhatsApp measured 2-26 ms (Oct 2026)
     expect(plays).toHaveLength(1);
     await message(600);
-    expect(plays).toHaveLength(1); // too late, left alone
+    expect(plays).toHaveLength(2);
+    expect(natives).toEqual([]);
   });
 
-  it("learns from WhatsApp's sound arriving late, and catches it next time", async () => {
-    await message(800); // missed, but measured
-    expect(plays).toHaveLength(0);
+  it("measures WhatsApp's sound arriving late", async () => {
     await message(800);
     expect(plays).toHaveLength(1);
-    expect(natives).toEqual([INCOMING]); // the first one played as WhatsApp's own
+    expect(JSON.parse(store.wanscTiming)).toContain(800);
   });
 
   it("does not learn from a different WhatsApp sound (e.g. 'message sent')", async () => {
     await message(800, OTHER);
-    await message(800);
     expect(plays).toHaveLength(0);
+    expect(natives).toEqual([OTHER]); // left alone
+    expect(store.wanscTiming).toBeUndefined();
+    expect(store.wanscLearnedSounds ?? "[]").not.toContain("sent-tick");
   });
 
-  it("never waits more than two seconds", async () => {
+  it("gives up on a notification after 3 s", async () => {
     await message(4_000);
-    await message(2_500);
     expect(plays).toHaveLength(0);
-    await message(1_900);
+    await message(2_500);
     expect(plays).toHaveLength(1);
   });
 
@@ -154,15 +150,14 @@ describe("timing that adapts to how fast WhatsApp plays its sound", () => {
     expect(JSON.parse(store.wanscTiming)).toContain(800);
     hook.uninstall();
     install();
-    await message(800);
-    expect(plays).toHaveLength(1);
+    await message(20);
+    expect(JSON.parse(store.wanscTiming)).toEqual([800, 20]);
 
-    plays.length = 0;
     store.wanscTiming = '["x", -5, 99999]';
     hook.uninstall();
     install();
-    await message(800);
-    expect(plays).toHaveLength(0); // nonsense dropped: back to the half-second window
+    await message(20);
+    expect(JSON.parse(store.wanscTiming)).toEqual([20]); // nonsense dropped
   });
 
   it("reports the measured delay for the diagnostics", async () => {
@@ -203,116 +198,3 @@ describe("the status line says WHY our sound did not play", () => {
 });
 
 // ------------------------------------------------------------------ reading the chat list
-
-describe("knowing (and saying) whether WhatsApp's chat list can be read", () => {
-  const real = (name, unread = 0) =>
-    `<div role="row"><div data-testid="cell-frame-container">` +
-    `<div data-testid="cell-frame-title"><span dir="auto" title="${name}">${name}</span></div>` +
-    `<div data-testid="cell-frame-secondary"><span title="hi">hi</span>` +
-    (unread ? `<span data-testid="icon-unread-count">${unread}</span>` : "") +
-    `</div></div></div>`;
-  const renamed = (name, unread = 0) =>
-    `<div class="r"><div><span dir="auto" title="${name}">${name}</span></div>` +
-    `<div><span title="hi">hi</span>${unread ? `<span data-q="1">${unread}</span>` : ""}</div></div>`;
-  const page = (html) => freshDocument(`<!DOCTYPE html><html><body>${html}</body></html>`);
-
-  it("today's WhatsApp is read with WhatsApp's own names", () => {
-    const model = createPageModel({
-      document: page(`<div id="pane-side">${real("Radwa", 1)}${real("Mom")}</div>`),
-    });
-    model.readChats();
-    expect(model.layers()).toEqual({ list: "builtin", name: "builtin", counter: "builtin" });
-  });
-
-  it("a renamed WhatsApp is read by structure", () => {
-    const model = createPageModel({
-      document: page(`<div class="l">${renamed("Radwa", 1)}${renamed("Mom")}</div>`),
-      knownNames: () => ["Radwa", "Mom"],
-    });
-    model.readChats();
-    expect(model.layers()).toEqual({ list: "structure", name: "structure", counter: "structure" });
-  });
-
-  it("what was learned is used first, and says so", () => {
-    const doc = page(`<div class="l">${renamed("Radwa", 1)}${renamed("Mom", 2)}</div>`);
-    const model = createPageModel({ document: doc, knownNames: () => ["Radwa", "Mom"] });
-    model.learnFrom("Radwa");
-    model.learnFrom("Mom");
-    model.readChats();
-    expect(model.layers()).toMatchObject({ name: "learned", counter: "learned" });
-  });
-
-  it("nothing readable says 'none'", () => {
-    const model = createPageModel({ document: page("<div>loading</div>") });
-    model.readChats();
-    expect(model.layers()).toEqual({ list: "none", name: "none", counter: "none" });
-  });
-
-  it("the status line warns after three unreadable checks in a row, and clears", () => {
-    const check = (readable) => ({ type: "page", readable, layers: { list: "none" } });
-    let health = emptyHealth();
-    for (let i = 0; i < 2; i++) health = applySignal(health, check(false), i);
-    expect(healthStatus(health).code).toBe("waiting");
-    health = applySignal(health, check(false), 3);
-    expect(healthStatus(health)).toMatchObject({ code: "list-unreadable", level: "warn" });
-    expect(healthMessage(health, 9).text).toBe(S.healthListUnreadable);
-    expect(healthStatus(applySignal(health, check(true), 4)).code).toBe("waiting");
-  });
-
-  it("diagnostics say which way the list is being read, from a fixed vocabulary only", () => {
-    const health = applySignal(
-      emptyHealth(),
-      {
-        type: "page",
-        readable: true,
-        layers: { list: "structure", name: "learned", counter: "<script>" },
-      },
-      1
-    );
-    expect(buildDiagnostics({ health, now: 2 }).chatList).toEqual({
-      readable: true,
-      list: "structure",
-      name: "learned",
-      counter: "unknown",
-    });
-    expect(sanitizeHealth({ page: "junk" }).page).toEqual(emptyHealth().page);
-  });
-
-  it("the bridge passes such checks on to the status record", async () => {
-    vi.useFakeTimers();
-    const data = {
-      settings: { enabled: true, volume: 1, defaultSoundId: null, showPopups: false },
-      sounds: {},
-      rules: [],
-    };
-    const doc = freshDocument();
-    doc.addEventListener(EVENT_PING, () =>
-      doc.dispatchEvent(
-        new CustomEvent(EVENT_PONG, { detail: JSON.stringify({ notification: true, play: true }) })
-      )
-    );
-    const bridge = startBridge({
-      chrome: {
-        storage: {
-          local: {
-            get: vi.fn(async (keys) =>
-              Object.fromEntries(keys.filter((k) => k in data).map((k) => [k, data[k]]))
-            ),
-            set: vi.fn(async (items) => Object.assign(data, items)),
-          },
-          onChanged: { addListener: () => {}, removeListener: () => {} },
-        },
-        runtime: { id: "ext", sendMessage: vi.fn(async () => ({ ok: true })) },
-      },
-      document: doc,
-      engine: { play: vi.fn(), invalidate: vi.fn(), canPlay: () => true },
-      CustomEventCtor: CustomEvent,
-    });
-    await bridge.ready;
-    bridge.report({ type: "page", readable: false, layers: { list: "none" } });
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(data.health.page.unreadableRun).toBe(1);
-    bridge.stop();
-    vi.useRealTimers();
-  });
-});

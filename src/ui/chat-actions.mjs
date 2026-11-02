@@ -1,5 +1,5 @@
 import { normalizeName } from "../core/normalize.mjs";
-import { MSG_SCAN, WHATSAPP_MATCH as WHATSAPP_TABS } from "../core/protocol.mjs";
+import { MSG_SCAN, WHATSAPP_MATCH as WHATSAPP_TABS, WHATSAPP_ORIGIN } from "../core/protocol.mjs";
 import { STRINGS as S } from "./strings.mjs";
 import { CHOICE_DEFAULT, choiceToAction } from "./view-model.mjs";
 
@@ -110,6 +110,23 @@ export async function refreshChatsFromWhatsApp(chrome, { bringToFront = false } 
         // The settings tab was closed meanwhile; nothing to go back to.
       }
     }
+  }
+}
+
+/** Bring the WhatsApp Web tab (and its window) to the front. Resolves true if there was one. */
+export async function openWhatsAppTab(chrome) {
+  try {
+    const tabs = await chrome.tabs.query({ url: WHATSAPP_TABS });
+    const tab = tabs.find((t) => t.active) ?? tabs[0];
+    if (!tab) {
+      await chrome.tabs.create?.({ url: `${WHATSAPP_ORIGIN}/` });
+      return false;
+    }
+    await chrome.tabs.update(tab.id, { active: true });
+    if (tab.windowId !== undefined) await chrome.windows?.update?.(tab.windowId, { focused: true });
+    return true;
+  } catch {
+    return false;
   }
 }
 

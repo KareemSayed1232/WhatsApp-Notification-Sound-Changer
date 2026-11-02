@@ -27,6 +27,27 @@ export function cleanDisplayName(value) {
   return value.replace(INVISIBLE, "").replace(/\s+/g, " ").trim();
 }
 
+// Text in a chat row that is never a chat's name: the unread count, its label, a time, a date.
+const NOT_A_NAME = [
+  /^\d{1,4}$/,
+  /^\d+\s+unread\s+messages?$/i,
+  /^\d{1,2}[:.]\d{2}(\s?[ap]\.?m\.?)?$/i,
+  /^\d{1,2}\/\d{1,2}\/\d{2,4}$/,
+];
+const MAX_NAME_LENGTH = 100;
+
+/** Is this an unread count, its label, a time or a date (text that is never a name)? */
+export function isCountOrTime(value) {
+  const text = cleanDisplayName(value);
+  return text !== "" && NOT_A_NAME.some((re) => re.test(text));
+}
+
+/** Could this be a chat's name? Not empty, not too long, not a count, a time or a date. */
+export function looksLikeChatName(value) {
+  const name = cleanDisplayName(value);
+  return name.length > 0 && name.length <= MAX_NAME_LENGTH && !isCountOrTime(name);
+}
+
 /** Canonical form used to compare contact/chat names. Never use it for display. */
 export function normalizeName(value) {
   if (typeof value !== "string") return "";

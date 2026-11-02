@@ -6,6 +6,7 @@ import {
 } from "./chat-actions.mjs";
 import { fillSelect, h } from "./dom.mjs";
 import { mountHealth } from "./health-ui.mjs";
+import { createSoundPlayer as createDefaultPlayer } from "./sound-player.mjs";
 import { icon } from "./icons.mjs";
 import { STRINGS as S, errorMessage } from "./strings.mjs";
 import {
@@ -17,37 +18,6 @@ import {
   defaultSoundHint,
   soundChoices,
 } from "./view-model.mjs";
-
-/** Plays a stored sound for preview. Extension pages are not bound by WhatsApp's CSP. */
-function createDefaultPlayer({ soundStore, window }) {
-  let audio = null;
-  let url = null;
-  let playingId = null;
-
-  function stop() {
-    if (audio) audio.pause();
-    if (url) window.URL.revokeObjectURL(url);
-    audio = null;
-    url = null;
-    playingId = null;
-  }
-
-  return {
-    stop,
-    async toggle(soundId) {
-      const wasPlaying = playingId === soundId;
-      stop();
-      if (wasPlaying) return;
-      const record = await soundStore.get(soundId);
-      if (!record) return;
-      url = window.URL.createObjectURL(new window.Blob([record.data], { type: record.mime }));
-      audio = new window.Audio(url);
-      playingId = soundId;
-      audio.addEventListener("ended", stop);
-      await audio.play().catch(stop);
-    },
-  };
-}
 
 /**
  * The settings page. The main thing on it is one list of your chats: each row has a single
@@ -266,7 +236,18 @@ export async function mountOptions({
         mountHealth({ document, stateStore, chrome, diagnostics: true })
       )
     ),
-    el("footer", { class: "page-footer" }, S.privacy)
+    el(
+      "footer",
+      { class: "page-footer" },
+      el("p", {}, S.privacy),
+      el(
+        "p",
+        {},
+        S.notAffiliated,
+        " ",
+        el("a", { href: S.supportUrl, target: "_blank", rel: "noopener" }, S.reportProblem)
+      )
+    )
   );
 
   document.getElementById("app").replaceChildren(page);
@@ -412,7 +393,14 @@ export async function mountOptions({
           row.chatId && row.hasRule
             ? el("span", { class: "linked", title: S.followsRenames }, icon(document, "link", 13))
             : null
-        )
+        ),
+        row.hasRule
+          ? el(
+              "span",
+              { class: `link-status ${row.linked ? "is-linked" : "is-waiting"}` },
+              row.linked ? S.linked : S.waitingLink
+            )
+          : null
       ),
       select,
       uploadButton,
@@ -555,18 +543,22 @@ export async function mountOptions({
   async function onUpload() {
     const files = [...(soundFile.files ?? [])];
     let added = 0;
+    let already = 0;
     for (const file of files) {
       const outcome = await run(() => stateStore.addSound(file));
       if (!outcome.ok) break;
-      added++;
+      if (outcome.result.duplicate) already++;
+      else added++;
       if (!state.settings.defaultSoundId) {
         await run(() => stateStore.setSettings({ defaultSoundId: outcome.result.id }));
       }
     }
     soundFile.value = "";
-    if (added > 0) {
+    if (added + already > 0) {
       renderAll();
-      say(added === 1 ? `Added "${files[0].name}".` : `Added ${added} sounds.`);
+      if (added === 0)
+        say(already === 1 ? `"${files[0].name}" was already added.` : S.allAlreadyAdded);
+      else say(added === 1 ? `Added "${files[0].name}".` : `Added ${added} sounds.`);
     }
   }
 

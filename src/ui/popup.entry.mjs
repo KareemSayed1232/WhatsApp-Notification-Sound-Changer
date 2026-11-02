@@ -8,6 +8,6 @@ const document = globalThis.document;
 const soundStore = createSoundStore();
 const stateStore = createStateStore({ storage: chrome.storage.local, soundStore });
 
-mountPopup({ document, stateStore, chrome }).catch((error) => {
+mountPopup({ document, stateStore, soundStore, chrome }).catch((error) => {
   document.getElementById("app").textContent = `Could not load: ${error.message}`;
 });

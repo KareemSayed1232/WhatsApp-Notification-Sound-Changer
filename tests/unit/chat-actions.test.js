@@ -6,7 +6,7 @@ import {
   describeScan,
   refreshChatsFromWhatsApp,
 } from "../../src/ui/chat-actions.mjs";
-import { buildChatRows, buildPeopleRows } from "../../src/ui/view-model.mjs";
+import { buildChatRows } from "../../src/ui/view-model.mjs";
 import { createFakeSoundStore, createFakeStorage } from "../helpers/fake-storage.js";
 import { MSG_SCAN } from "../../src/core/protocol.mjs";
 
@@ -39,7 +39,6 @@ async function setup(initial = { recentSenders }) {
 }
 
 const chatRow = async (name) => buildChatRows(await store.load()).find((r) => r.name === name);
-const personRow = async (name) => buildPeopleRows(await store.load()).find((r) => r.name === name);
 const codeOf = async (promise) => {
   try {
     await promise;
@@ -70,16 +69,6 @@ describe("applyChoice", () => {
     expect((await store.load()).rules[0]).toMatchObject({
       kind: "chat",
       match: "Mom",
-      chatId: null,
-      action: "silent",
-    });
-  });
-
-  it("creates a name-based rule for a person inside a group", async () => {
-    await applyChoice(store, await personRow("Bob"), "__silent");
-    expect((await store.load()).rules[0]).toMatchObject({
-      kind: "sender",
-      match: "Bob",
       chatId: null,
       action: "silent",
     });
@@ -166,11 +155,6 @@ describe("addChatByName", () => {
       chatId: null,
       action: "silent",
     });
-  });
-
-  it("treats a name seen only as a group sender as a sender rule", async () => {
-    await addChatByName(store, await store.load(), "bob", "id1");
-    expect((await store.load()).rules[0]).toMatchObject({ kind: "sender", chatId: null });
   });
 
   it("reports a duplicate and an empty name through the store's error codes", async () => {

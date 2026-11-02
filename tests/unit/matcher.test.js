@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseSenderFromBody, findRule, decidePlayback } from "../../src/core/matcher.mjs";
-import { normalizeName } from "../../src/core/normalize.mjs";
+import { findRule, decidePlayback } from "../../src/core/matcher.mjs";
 
 const rule = (over) => ({
   id: "r1",
@@ -16,38 +15,6 @@ const sounds = {
   s1: { id: "s1", name: "Ping", mime: "audio/mpeg", size: 10 },
   s2: { id: "s2", name: "Chime", mime: "audio/mpeg", size: 10 },
 };
-
-describe("parseSenderFromBody", () => {
-  it("extracts the sender prefix used in group notifications", () => {
-    expect(parseSenderFromBody("Alice: hello")).toBe("Alice");
-  });
-
-  it("uses only the first colon", () => {
-    expect(parseSenderFromBody("Alice: meet at 10: sharp")).toBe("Alice");
-  });
-
-  it("returns null when there is no 'Name: ' prefix", () => {
-    expect(parseSenderFromBody("hello there")).toBeNull();
-    expect(parseSenderFromBody("https://example.com")).toBeNull();
-  });
-
-  it("returns null for implausibly long prefixes (message text, not a name)", () => {
-    const text = "Reminder to bring the following items to the meeting tomorrow morning: milk";
-    expect(parseSenderFromBody(text)).toBeNull();
-  });
-
-  it("handles the real WhatsApp group format: leading space and an invisible LRM mark", () => {
-    // Captured from WhatsApp Web (Oct 2026): body was " <name><U+200E>: <text>".
-    const prefix = parseSenderFromBody(" \u{1F606}‎: test");
-    expect(prefix).not.toBeNull();
-    expect(normalizeName(prefix)).toBe(normalizeName("\u{1F606}"));
-  });
-
-  it("returns null for non-strings and empty prefixes", () => {
-    expect(parseSenderFromBody(undefined)).toBeNull();
-    expect(parseSenderFromBody(": hi")).toBeNull();
-  });
-});
 
 describe("findRule", () => {
   it("matches a chat rule on the normalized title", () => {
@@ -86,21 +53,6 @@ describe("findRule", () => {
 
   it("ignores disabled rules", () => {
     expect(findRule({ title: "Alice" }, [rule({ enabled: false })])).toBeNull();
-  });
-
-  it("matches a sender rule against the group body prefix", () => {
-    const rules = [rule({ kind: "sender", match: "Bob" })];
-    expect(findRule({ title: "Family", body: "Bob: dinner?" }, rules)).toBe(rules[0]);
-  });
-
-  it("matches a sender rule on the real group notification shape (title=group, tag=group id)", () => {
-    const rules = [rule({ kind: "sender", match: "\u{1F606}" })];
-    const notification = {
-      title: "asd",
-      tag: "120363415938335499@g.us",
-      body: " \u{1F606}‎: test",
-    };
-    expect(findRule(notification, rules)).toBe(rules[0]);
   });
 
   it("does not match a sender rule when the body has no sender prefix", () => {

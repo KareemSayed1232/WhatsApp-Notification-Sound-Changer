@@ -52,14 +52,21 @@
   margin-top: -4px;
 }
 
-/* The popup is narrow: the name takes a line, the dropdown and the upload button share the next. */
+/* The popup is narrow: the name takes a line; the dropdown, Play and Upload share the next. */
 .popup .chat-list li {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   padding: 8px 10px;
   gap: 6px 10px;
 }
 .popup .chat-list .chat-name {
   grid-column: 1 / -1;
+}
+
+.first-run ol {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
 }
 
 .quick-add {

@@ -1,9 +1,12 @@
+import { parseDataUrl } from "../core/audio-data.mjs";
 import {
   EVENT_ANSWER,
   EVENT_ASK,
   EVENT_PING,
   EVENT_PLAY,
   EVENT_PLAY_NATIVE,
+  EVENT_QUIET,
+  EVENT_SOUNDS,
   EVENT_PONG,
   EVENT_SIGNAL,
   NO_SOUND_WINDOW_MS,
@@ -16,6 +19,9 @@ import {
 } from "../core/protocol.mjs";
 
 const HOOK_MARKER = Symbol.for("wansc.main-hook");
+// Raised whenever the hook changes. After an update the background injects the new hook into open
+// WhatsApp tabs: an older hook found there is uninstalled first, so old and new code never mix.
+export const HOOK_VERSION = 3;
 const LEARNED_KEY = "wanscLearnedSounds";
 const SOUND_URL_KEY = "wanscSoundUrl";
 // How long WhatsApp took to play its sound after a notification, measured (kept across reloads).
@@ -28,7 +34,14 @@ const MAX_SELF_PLAY_MS = 1000;
 // A known incoming sound this soon after a notification it missed is that notification's, late.
 const LATE_LOOKBACK_MS = 3000;
 const PERMISSION_CACHE_MS = 1000;
+// The longest the bridge may ask WhatsApp's own sound to stay quiet after one of ours.
+const MAX_QUIET_MS = 3000;
 const MAX_LEARNED = 5;
+// A WhatsApp sound is learned as "the incoming sound" only after following a notification this
+// many times: once could be another WhatsApp sound (e.g. "message sent" when replying quickly).
+const LEARN_CONFIRMATIONS = 2;
+const LEARNED_FORMAT = 2;
+const MAX_LEARNING = 20;
 // Web Audio is only watched once the normal <audio> route has demonstrably stopped producing
 // sounds (this many notifications in a row with none), or has already been seen to work.
 const WEB_AUDIO_AFTER_SILENT = 2;
@@ -54,7 +67,19 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
   // Idempotent: the background may inject this again into a tab that already has it (after the
   // extension is reloaded). Wrapping twice would break the page's Notification.
   const existing = window[HOOK_MARKER];
-  if (existing) return existing;
+  if (existing?.version === HOOK_VERSION) return existing;
+  if (existing) {
+    try {
+      existing.uninstall?.();
+    } catch {
+      // An old hook that cannot uninstall: ours wraps whatever is there now.
+    }
+    try {
+      delete window[HOOK_MARKER];
+    } catch {
+      // Not deletable: overwritten below.
+    }
+  }
 
   const OriginalNotification = window.Notification;
   const mediaProto = window.HTMLMediaElement ? window.HTMLMediaElement.prototype : null;
@@ -68,7 +93,21 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
   const queryWasOwn =
     originalQuery !== null && Object.prototype.hasOwnProperty.call(permissions, "query");
 
+  // What our wrappers call through to. It starts as the browser's own, and becomes whatever
+  // replaced our wrapper if WhatsApp (or another extension) did, once we put ourselves back on top.
+  let targetNotification = OriginalNotification;
+  let targetPlay = originalPlay;
+  // A replacement that itself calls the one it replaced (ours) would loop: one level deep, the
+  // wrappers call the browser's own instead.
+  let insideNotification = false;
+  let insidePlay = false;
+
+  // Until when WhatsApp's own incoming sound is kept quiet, because we just played one of ours.
+  let quietUntil = -Infinity;
   let pending = null;
+  // The last notification, kept a little longer than `pending`: a WhatsApp sound arriving later
+  // than the pairing window still belongs to it, if no sound has claimed it yet.
+  let recent = null;
   let silentRun = 0;
   let webAudioProven = false;
   let learnedCache = null;
@@ -141,10 +180,19 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
     pending = null;
   }
 
-  function setPending(decision, { selfPlay = false } = {}) {
+  function setPending(decision, { selfPlay = false, chat = "" } = {}) {
     clearPending();
-    const mine = { decision, at: now(), timer: null, selfTimer: null, selfPlayed: false };
+    const mine = {
+      decision,
+      at: now(),
+      timer: null,
+      selfTimer: null,
+      selfPlayed: false,
+      claimed: false,
+      chat,
+    };
     lastNotificationAt = mine.at;
+    recent = mine;
     // A notification WhatsApp did not mark silent would have made the operating system ring
     // (we hid it). If WhatsApp plays no sound of its own, play the chat's sound ourselves.
     if (selfPlay && decision?.action === "play") {
@@ -153,11 +201,7 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
         mine.selfPlayed = true;
         silentRun = 0;
         debug("no sound from WhatsApp; playing the chat's sound ourselves");
-        try {
-          dispatch(EVENT_PLAY, { soundId: decision.soundId, volume: decision.volume });
-        } catch {
-          // Nothing more to do.
-        }
+        if (!playOwn(decision)) onPlayNative(); // not handed over: WhatsApp's own ding
         signal({ type: "self-played" });
       }, selfPlayDelay());
     }
@@ -184,6 +228,16 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
     } catch {
       return false;
     }
+  }
+
+  /** A decision tagged with the chat it is for, so the bridge's sound gate can tell messages apart. */
+  function forChat(decision, chat) {
+    return decision && typeof decision === "object" ? { ...decision, chat: chat || "" } : decision;
+  }
+
+  /** The last notification, if no sound has claimed it and it is recent enough for a slow sound. */
+  function lateNotification() {
+    return recent && !recent.claimed && now() - recent.at <= LATE_LOOKBACK_MS ? recent : null;
   }
 
   /** The notification a sound arriving now would belong to, or null. Does not consume it. */
@@ -238,19 +292,33 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
 
   // ---------------------------------------------------------------- learned sound files
 
-  function learnedFiles() {
+  /**
+   * What was learned about WhatsApp's incoming sound: `trusted` files (confirmed enough times)
+   * and `seen` counts for files still being confirmed. Files saved by the old one-time rule are
+   * dropped: one of them could be WhatsApp's "message sent" sound.
+   */
+  function learnedData() {
     if (learnedCache === null) {
-      learnedCache = [];
+      learnedCache = { trusted: [], seen: {} };
       try {
-        const stored = JSON.parse(window.localStorage?.getItem(LEARNED_KEY) || "[]");
-        if (Array.isArray(stored)) {
-          learnedCache = stored.filter((f) => typeof f === "string").slice(-MAX_LEARNED);
+        const stored = JSON.parse(window.localStorage?.getItem(LEARNED_KEY) || "null");
+        if (stored?.v === LEARNED_FORMAT) {
+          learnedCache.trusted = (Array.isArray(stored.trusted) ? stored.trusted : [])
+            .filter((f) => typeof f === "string")
+            .slice(-MAX_LEARNED);
+          for (const [file, count] of Object.entries(stored.seen ?? {}).slice(-MAX_LEARNING)) {
+            if (Number.isFinite(count) && count > 0) learnedCache.seen[file] = count;
+          }
         }
       } catch {
         // Unreadable storage: start with nothing learned.
       }
     }
     return learnedCache;
+  }
+
+  function learnedFiles() {
+    return learnedData().trusted;
   }
 
   // WhatsApp's incoming-message sound as it was last seen (kept across reloads), so the
@@ -278,17 +346,33 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
     }
   }
 
-  /** A sound that played right after a notification is the incoming-message sound: remember it. */
+  /**
+   * A sound that played right after a notification is probably the incoming-message sound. It is
+   * trusted (and becomes WhatsApp's ding) only once it has done so LEARN_CONFIRMATIONS times.
+   */
   function learn(url) {
     if (!isWhatsAppSound(url)) return;
-    rememberSoundUrl(url);
     const file = soundFileName(url);
-    const files = learnedFiles();
-    if (!file || files.includes(file)) return;
-    files.push(file);
-    if (files.length > MAX_LEARNED) files.shift();
+    if (!file) return;
+    const data = learnedData();
+    if (isKnownIncomingSound(url, data.trusted)) {
+      rememberSoundUrl(url);
+      return;
+    }
+    data.seen[file] = (data.seen[file] ?? 0) + 1;
+    const files = Object.keys(data.seen);
+    if (files.length > MAX_LEARNING) delete data.seen[files[0]];
+    if (data.seen[file] >= LEARN_CONFIRMATIONS) {
+      delete data.seen[file];
+      data.trusted.push(file);
+      if (data.trusted.length > MAX_LEARNED) data.trusted.shift();
+      rememberSoundUrl(url);
+    }
     try {
-      window.localStorage?.setItem(LEARNED_KEY, JSON.stringify(files));
+      window.localStorage?.setItem(
+        LEARNED_KEY,
+        JSON.stringify({ v: LEARNED_FORMAT, trusted: data.trusted, seen: data.seen })
+      );
     } catch {
       // Not persisted: it is learned again next time.
     }
@@ -394,7 +478,10 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
     }
     // Today WhatsApp passes silent:true and plays its own sound; anything else means the
     // operating system was meant to make the sound.
-    setPending(answer.decision, { selfPlay: options?.silent !== true });
+    setPending(answer.decision, {
+      selfPlay: options?.silent !== true,
+      chat: title == null ? "" : String(title),
+    });
     return answer;
   }
 
@@ -404,18 +491,25 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
         "Failed to construct 'Notification': Please use the 'new' operator, this DOM object constructor cannot be called as a function."
       );
     }
-    let answer = null;
+    if (insideNotification) return new OriginalNotification(title, options);
+    insideNotification = true;
     try {
-      answer = consult(title, options);
-    } catch {
-      answer = null; // fail open
-    }
-    if (!answer) return new OriginalNotification(title, options);
+      let answer = null;
+      try {
+        answer = consult(title, options);
+      } catch {
+        answer = null; // fail open
+      }
+      if (!answer) return new targetNotification(title, options);
 
-    if (answer.showPopup && OriginalNotification.permission === "granted") {
-      return new OriginalNotification(title, { ...(options || {}), silent: true });
+      const permission = targetNotification.permission ?? OriginalNotification.permission;
+      if (answer.showPopup && permission === "granted") {
+        return new targetNotification(title, { ...(options || {}), silent: true });
+      }
+      return makeStub(title, options);
+    } finally {
+      insideNotification = false;
     }
-    return makeStub(title, options);
   };
 
   if (OriginalNotification) {
@@ -467,15 +561,36 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
 
   /** The decision for a WhatsApp sound, or null to leave it alone. */
   function takeDecision(url, meta) {
+    // We just played a sound ourselves for this message: WhatsApp's own would be a second one.
+    if (now() < quietUntil && isKnownIncomingSound(url, learnedFiles())) {
+      if (recent) recent.claimed = true;
+      clearPending();
+      debug("WhatsApp's sound right after ours: kept quiet");
+      return { action: "silent" };
+    }
     const paired = freshPending();
     clearPending();
+    if (paired) paired.claimed = true;
     if (paired?.selfPlayed) return { action: "silent" }; // we already played this one
     if (paired) {
       learn(url);
       recordDelay(now() - paired.at);
       silentRun = 0;
       signal({ type: "paired", url, ...meta });
-      return paired.decision;
+      return forChat(paired.decision, paired.chat);
+    }
+    // Slower than the pairing window, but no sound has claimed the last notification yet: WhatsApp's
+    // incoming sound (known or learned, never another WhatsApp sound such as "message sent") is
+    // that notification's. Silenced if we already played the chat's sound for it.
+    const late = isKnownIncomingSound(url, learnedFiles()) ? lateNotification() : null;
+    if (late) {
+      late.claimed = true;
+      rememberSoundUrl(url);
+      recordDelay(now() - late.at);
+      silentRun = 0;
+      signal({ type: "paired", url, ...meta });
+      debug("WhatsApp's sound came late; it still belongs to the last notification");
+      return late.selfPlayed ? { action: "silent" } : forChat(late.decision, late.chat);
     }
     if (isKnownIncomingSound(url, learnedFiles())) {
       rememberSoundUrl(url);
@@ -506,6 +621,7 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
   const wrappedPlay =
     mediaProto && typeof originalPlay === "function"
       ? function play(...args) {
+          if (insidePlay) return originalPlay.apply(this, args);
           let decision = null;
           try {
             const url = this.currentSrc || this.src || "";
@@ -522,17 +638,19 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
           } catch {
             decision = null; // fail open
           }
-          if (decision && decision.action !== "native") {
-            try {
-              if (decision.action === "play") {
-                dispatch(EVENT_PLAY, { soundId: decision.soundId, volume: decision.volume });
-              }
-            } catch {
-              // Nothing more to do: the original sound is still suppressed.
-            }
-            return Promise.resolve();
+          // Silent: nothing plays. Your sound: played in a fresh page player instead of WhatsApp's.
+          // Your sound not handed over: WhatsApp's own plays below (never silence).
+          if (decision?.action === "silent") return Promise.resolve();
+          if (decision?.action === "play") {
+            if (playOwn(decision)) return Promise.resolve();
+            signal({ type: "play-failed" });
           }
-          return originalPlay.apply(this, args);
+          insidePlay = true;
+          try {
+            return targetPlay.apply(this, args);
+          } finally {
+            insidePlay = false;
+          }
         }
       : null;
   if (wrappedPlay) mediaProto.play = wrappedPlay;
@@ -545,6 +663,7 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
           try {
             const watching = silentRun >= WEB_AUDIO_AFTER_SILENT || webAudioProven;
             const paired = watching ? freshPending() : null;
+            if (paired) paired.claimed = true;
             if (paired?.selfPlayed) {
               clearPending();
               decision = { action: "silent" }; // we already played this one
@@ -554,21 +673,13 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
               silentRun = 0;
               debug("Web Audio sound after a notification ->", paired.decision);
               signal({ type: "paired", url: "", via: "webaudio", detached: false });
-              decision = paired.decision;
+              decision = forChat(paired.decision, paired.chat);
             }
           } catch {
             decision = null; // fail open
           }
-          if (decision && decision.action !== "native") {
-            try {
-              if (decision.action === "play") {
-                dispatch(EVENT_PLAY, { soundId: decision.soundId, volume: decision.volume });
-              }
-            } catch {
-              // Nothing more to do: the original sound is still suppressed.
-            }
-            return undefined;
-          }
+          if (decision?.action === "silent") return undefined;
+          if (decision?.action === "play" && playOwn(decision)) return undefined;
           return originalStart.apply(this, args);
         }
       : null;
@@ -643,12 +754,122 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
   }
   document.addEventListener(EVENT_PLAY_NATIVE, onPlayNative);
 
+  // ---------------------------------------------------------------- your sounds, in the page
+
+  // The bridge hands over the sounds in use; each becomes a blob URL that WhatsApp's page can play
+  // (checked on real WhatsApp: its policy allows it). soundId -> blob URL.
+  const library = new Map();
+
+  function onSounds(event) {
+    let sounds;
+    try {
+      sounds = JSON.parse(event.detail)?.sounds;
+    } catch {
+      return;
+    }
+    if (!Array.isArray(sounds)) return;
+    for (const sound of sounds) {
+      if (!sound || typeof sound.id !== "string") continue;
+      const parsed = parseDataUrl(sound.dataUrl);
+      if (!parsed || !/^audio\//.test(parsed.mime)) continue;
+      try {
+        const url = window.URL.createObjectURL(
+          new window.Blob([parsed.bytes], { type: parsed.mime })
+        );
+        const old = library.get(sound.id);
+        library.set(sound.id, url);
+        if (old) window.URL.revokeObjectURL(old);
+      } catch {
+        // This sound stays unavailable: WhatsApp's own plays instead.
+      }
+    }
+  }
+  document.addEventListener(EVENT_SOUNDS, onSounds);
+
+  /**
+   * Play one of your sounds in a fresh player created by WhatsApp's page, through the original
+   * play(): WhatsApp's own sound element is never changed (WhatsApp may reuse it). False when the
+   * sound is not available, so the caller lets WhatsApp's own sound play.
+   */
+  function playOwn(decision) {
+    const url = decision?.action === "play" ? library.get(decision.soundId) : null;
+    if (!url || typeof window.Audio !== "function" || typeof originalPlay !== "function") {
+      return false;
+    }
+    try {
+      const audio = new window.Audio(url);
+      if (Number.isFinite(decision.volume))
+        audio.volume = Math.min(1, Math.max(0, decision.volume));
+      // Its own play(): our wrapper passes your sound straight through (it is not WhatsApp's).
+      const result = audio.play();
+      if (result && typeof result.catch === "function") result.catch(() => {});
+      debug("played your sound", decision.soundId);
+      // Tell whoever listens (the debug log, tests) which sound played. Nothing acts on it.
+      dispatch(EVENT_PLAY, {
+        soundId: decision.soundId,
+        volume: decision.volume,
+        chat: decision.chat ?? "",
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** The bridge is playing a sound itself: keep WhatsApp's own incoming sound quiet a moment. */
+  function onQuiet(event) {
+    try {
+      const ms = Number(JSON.parse(event.detail)?.ms);
+      if (ms > 0) quietUntil = now() + Math.min(ms, MAX_QUIET_MS);
+    } catch {
+      // Ignore a malformed request.
+    }
+  }
+  document.addEventListener(EVENT_QUIET, onQuiet);
+
+  /**
+   * Something replaced our wrappers: wrap what is there now and put ours back on top, so the
+   * replacement keeps working underneath. Returns true if anything was put back.
+   */
+  function putBack() {
+    let putBackAny = false;
+    if (OriginalNotification && window.Notification !== ManagedNotification) {
+      const current = window.Notification;
+      try {
+        window.Notification = ManagedNotification;
+      } catch {
+        // Locked by the page: reported as overwritten.
+      }
+      if (window.Notification === ManagedNotification) {
+        if (typeof current === "function") targetNotification = current;
+        putBackAny = true;
+      }
+    }
+    if (wrappedPlay && mediaProto.play !== wrappedPlay) {
+      const current = mediaProto.play;
+      try {
+        mediaProto.play = wrappedPlay;
+      } catch {
+        // Locked by the page: reported as overwritten.
+      }
+      if (mediaProto.play === wrappedPlay) {
+        if (typeof current === "function") targetPlay = current;
+        putBackAny = true;
+      }
+    }
+    if (putBackAny) debug("something replaced our wrappers: put them back on top");
+    return putBackAny;
+  }
+
   /** The bridge asks "are you still in place?" because WhatsApp could replace our wrappers. */
   function onPing() {
     try {
+      const healed = putBack();
       dispatch(EVENT_PONG, {
         notification: !OriginalNotification || window.Notification === ManagedNotification,
         play: !wrappedPlay || mediaProto.play === wrappedPlay,
+        healed,
+        sounds: library.size,
       });
     } catch {
       // Not answering is itself reported by the bridge.
@@ -657,14 +878,33 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
   document.addEventListener(EVENT_PING, onPing);
 
   const api = {
+    version: HOOK_VERSION,
     uninstall() {
       clearPending();
       document.removeEventListener(EVENT_PING, onPing);
       document.removeEventListener(EVENT_PLAY_NATIVE, onPlayNative);
-      if (OriginalNotification) window.Notification = OriginalNotification;
-      if (wrappedPlay) mediaProto.play = originalPlay;
-      if (wrappedShow) registrationProto.showNotification = originalShow;
-      if (wrappedStart) sourceProto.start = originalStart;
+      document.removeEventListener(EVENT_SOUNDS, onSounds);
+      for (const url of library.values()) {
+        try {
+          window.URL.revokeObjectURL(url);
+        } catch {
+          // Already released.
+        }
+      }
+      library.clear();
+      document.removeEventListener(EVENT_QUIET, onQuiet);
+      try {
+        if (OriginalNotification) window.Notification = OriginalNotification;
+      } catch {
+        // Locked by the page: leave it.
+      }
+      try {
+        if (wrappedPlay) mediaProto.play = originalPlay;
+        if (wrappedShow) registrationProto.showNotification = originalShow;
+        if (wrappedStart) sourceProto.start = originalStart;
+      } catch {
+        // Locked by the page: leave it.
+      }
       if (wrappedQuery && permissions.query === wrappedQuery) {
         if (queryWasOwn) permissions.query = originalQuery;
         else delete permissions.query;

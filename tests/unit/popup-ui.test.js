@@ -349,7 +349,7 @@ describe("loading every chat from WhatsApp", () => {
   });
 
   it("describes adding by name as the last resort", () => {
-    expect($(".add-by-name summary").textContent).toMatch(/Last resort/);
+    expect($(".add-by-name summary").textContent).toBe("Can't find a chat? Add it by name");
   });
 
   it("keeps people inside groups out of the popup's list", async () => {
@@ -398,13 +398,20 @@ describe("default sound, volume and the on/off switch", () => {
     expect($(".volume-out").textContent).toBe("40%");
   });
 
-  it("points a new user at settings when there are no sounds yet", async () => {
+  it("shows a new user how to get started", async () => {
     await mount({ initial: { recentSenders } });
-    expect($("#needSound").hidden).toBe(false);
+    expect($("#firstRun").hidden).toBe(false);
   });
 
-  it("hides that hint once a sound exists", () => {
-    expect($("#needSound").hidden).toBe(true);
+  it("hides the steps once a chat has its own sound", async () => {
+    await mount({
+      initial: { recentSenders },
+      setup: async (s) => {
+        await twoSounds(s);
+        await s.addRule({ kind: "chat", match: "Radwa", action: "sound", soundId: "id1" });
+      },
+    });
+    expect($("#firstRun").hidden).toBe(true);
   });
 
   it("opens the full settings page", () => {

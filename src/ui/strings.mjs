@@ -1,7 +1,10 @@
 // All user-facing text lives here so translating the UI later means editing one file.
 
 export const STRINGS = {
-  appName: "WhatsApp Sound Changer",
+  appName: "Sound Changer for WhatsApp",
+  supportUrl: "https://github.com/KareemSayed1232/WhatsApp-Notification-Sound-Changer/issues",
+  notAffiliated: "Not affiliated with WhatsApp or Meta.",
+  reportProblem: "Report a problem",
   tagline: "A different sound for every chat.",
   enabled: "Enabled",
   settings: "All settings",
@@ -27,6 +30,9 @@ export const STRINGS = {
   colSound: "Sound",
   colOn: "On",
   followsRenames: "follows renames",
+  // A chat sound tied to the chat's id (safe), or still matched by name until its first message.
+  linked: "Linked ✓",
+  waitingLink: "Waiting for first message",
   delete: "Delete",
 
   soundsTitle: "Sounds",
@@ -50,14 +56,14 @@ export const STRINGS = {
   chatsSearchPrompt: "No chat has its own sound yet. Search above to find one and pick its sound.",
   chatsNoMatch: "No chat matches that. Press Refresh if it's missing, or add it by name below.",
   chatsMore: "More matches not shown. Keep typing to narrow it down.",
-  refreshChats: "Refresh chats",
+  refreshChats: "Refresh chat list",
   scanning: "Reading your WhatsApp chat list…",
   scanNoTab: "Open WhatsApp Web in a tab first, then try again.",
   scanNotReady: "Reload the WhatsApp tab once, then try again.",
   scanNoList:
     "Couldn't read the chat list on the page (WhatsApp may have changed). Use the last-resort box below for now.",
   scanFailed: "Couldn't read your chats. Reload the WhatsApp tab and try again.",
-  addByName: "Last resort: add a chat by name",
+  addByName: "Can't find a chat? Add it by name",
   addByNameHint: "Only if a chat is missing from the list. The name must match WhatsApp exactly.",
   peopleTitle: "People inside groups (advanced)",
   peopleHint: "Give one person their own sound in every group they write in.",
@@ -90,6 +96,9 @@ export const STRINGS = {
   healthWorking: "Working. Last handled a message",
   healthNoSound:
     "WhatsApp keeps notifying us but plays no sound. Either WhatsApp's own sounds are turned off, or WhatsApp changed something. If you hear no sound of yours, copy the diagnostics in settings.",
+  healthAudioLocked:
+    "Your browser won't play sounds until you click once anywhere in the WhatsApp tab. Do that now, so you don't miss the next message.",
+  openWhatsApp: "Open WhatsApp",
   healthPlayBlocked:
     "Your sound couldn't play last time: the browser blocks sound until you click once in the WhatsApp tab. Click anywhere in WhatsApp to fix it. WhatsApp's own sound was used where possible.",
   healthListUnreadable:
@@ -101,21 +110,52 @@ export const STRINGS = {
   healthSenderFormat:
     "WhatsApp changed how group messages name their sender, so sounds for people in groups may not play. Copy the diagnostics in settings.",
   healthNoChatInfo:
-    "Messages are arriving, but WhatsApp isn't saying which chat they're from, so only your default sound can play. WhatsApp may have changed. Copy the diagnostics in settings.",
+    "WhatsApp is playing message sounds but not sending notifications, so it isn't saying which chat a message is from: only your default sound can play. To fix it, in WhatsApp Web open Settings → Notifications and turn message notifications on, then reload the WhatsApp tab.",
   healthHookMissing:
     "Can't reach the WhatsApp page. Reload your WhatsApp tab. If this stays, WhatsApp may have changed.",
   healthHookOverwritten:
     "WhatsApp replaced something we rely on. Reload your WhatsApp tab; if it keeps happening, WhatsApp changed.",
+  troubleshooting: "Troubleshooting",
   diagnosticsTitle: "Diagnostics",
   diagnosticsHint:
     "If a WhatsApp update stops this working, copy the diagnostics and send them with your report. They contain counts and file types only: no chat names, messages or sounds.",
   copyDiagnostics: "Copy diagnostics",
+  runSelfTest: "Run a self-test",
+  selfTestHint:
+    "Checks, in your WhatsApp tab, every part this extension relies on. Run it after a WhatsApp update.",
+  selfTestNames: {
+    hook: "Connected to the WhatsApp page",
+    enabled: "Extension switched on",
+    "chat-list": "Can read the chat list",
+    counters: "Can see unread counters",
+    sound: "Your sounds are ready",
+  },
+  selfTestAllPassed: "All checks passed.",
+  selfTestSomeFailed: "Some checks failed. Copy the diagnostics and the page layout into a report.",
+  copyLayout: "Copy page layout",
+  layoutHint:
+    "If Refresh chat list stops working after a WhatsApp update, also copy the page layout: the shape of WhatsApp's chat list with every name and message replaced.",
+  layoutCopied:
+    "Copied the page layout. No names or messages are in it. Paste it into your report.",
+  layoutFailed: "Couldn't read WhatsApp's chat list. Reload the WhatsApp tab and try again.",
   diagnosticsCopied: "Copied. Paste it where you report the problem.",
   diagnosticsManual: "Couldn't copy automatically. Select the text below and copy it.",
 
   popupRecent: "Recent chats",
   popupRecentEmpty: "Chats that message you will show up here.",
   popupNeedSound: "Add a sound in settings to get started.",
+  firstRunTitle: "Get started",
+  firstRunSteps: [
+    "Open WhatsApp Web in a tab and press Refresh chat list.",
+    "Search for a chat and pick a sound, or Upload sound for your own file.",
+    "Press Play to hear it. The next message from that chat plays it.",
+  ],
+  firstRunNote:
+    "Sounds play while WhatsApp Web is open in a tab. With the tab closed, you hear your browser's normal sound.",
+  play: "Play",
+  playFor: "Play the sound for",
+  alreadyAdded: "was already added, so that one is used",
+  allAlreadyAdded: "Those sounds were already added.",
   popupOpenSettings: "Add sounds and more settings",
   popupChatsTitle: "Your chats",
   popupChatsEmpty: "No chats yet. Add one below.",

@@ -7,9 +7,11 @@ import {
 import { fillSelect, h } from "./dom.mjs";
 import { mountHealth } from "./health-ui.mjs";
 import { icon } from "./icons.mjs";
+import { createSoundPlayer } from "./sound-player.mjs";
 import { STRINGS as S, errorMessage } from "./strings.mjs";
 import {
   CHOICE_DEFAULT,
+  CHOICE_SILENT,
   buildChatRows,
   buildSoundRows,
   chatsToShow,
@@ -23,9 +25,17 @@ const POPUP_LIMIT = 8;
  * The toolbar popup: your chats, each with one dropdown to pick its sound, including uploading a
  * new sound inline.
  */
-export async function mountPopup({ document, stateStore, chrome, useUploadWindow }) {
+export async function mountPopup({
+  document,
+  stateStore,
+  chrome,
+  useUploadWindow,
+  soundStore,
+  player: givenPlayer,
+}) {
   const el = (tag, props, ...kids) => h(document, tag, props, ...kids);
   const win = document.defaultView;
+  const player = givenPlayer ?? createSoundPlayer({ soundStore, window: win });
   // Chrome, Edge and other Chromium browsers keep a popup open while a file picker is showing.
   // Firefox (and Safari) close it, losing the chosen file, so they upload in a small window.
   const useWindow = useUploadWindow ?? !/Chrome\//.test(win.navigator?.userAgent ?? "");
@@ -67,11 +77,13 @@ export async function mountPopup({ document, stateStore, chrome, useUploadWindow
     "aria-live": "polite",
     hidden: true,
   });
-  const needSound = el(
-    "p",
-    { class: "banner", id: "needSound" },
-    icon(document, "speaker"),
-    S.popupNeedSound
+  // Shown until a chat has its own sound or a default sound is set.
+  const firstRun = el(
+    "section",
+    { class: "block first-run", id: "firstRun" },
+    el("h2", {}, S.firstRunTitle),
+    el("ol", {}, ...S.firstRunSteps.map((step) => el("li", {}, step))),
+    el("p", { class: "hint" }, S.firstRunNote)
   );
 
   const chatList = el("ul", { id: "chatList", class: "chat-list", onFocusout: onChatsFocusOut });
@@ -98,7 +110,7 @@ export async function mountPopup({ document, stateStore, chrome, useUploadWindow
       onClick: onRefresh,
     },
     icon(document, "refresh", 15),
-    "Refresh"
+    S.refreshChats
   );
 
   const quickName = el("input", {
@@ -141,7 +153,7 @@ export async function mountPopup({ document, stateStore, chrome, useUploadWindow
       )
     ),
     message,
-    needSound,
+    firstRun,
     mountHealth({ document, stateStore, chrome }),
     el(
       "section",
@@ -207,6 +219,20 @@ export async function mountPopup({ document, stateStore, chrome, useUploadWindow
       onChange: (event) => onChatChoice(row.key, event.target),
     });
     fillSelect(document, select, soundChoices(state.sounds), row.choice);
+    const playing = soundToPlay(row.choice);
+    const playButton = el(
+      "button",
+      {
+        class: "btn btn-secondary btn-small play-sound",
+        type: "button",
+        title: `${S.playFor} ${row.name}`,
+        "aria-label": `${S.playFor} ${row.name}`,
+        disabled: !playing,
+        onClick: () => playing && player.play(playing),
+      },
+      icon(document, "speaker", 15),
+      S.play
+    );
     const fileInput = el("input", {
       type: "file",
       accept: "audio/*",
@@ -236,9 +262,17 @@ export async function mountPopup({ document, stateStore, chrome, useUploadWindow
         "div",
         { class: "chat-name" },
         el("span", { class: "name" }, row.name),
-        el("span", { class: "meta" }, row.kindLabel)
+        el("span", { class: "meta" }, row.kindLabel),
+        row.hasRule
+          ? el(
+              "span",
+              { class: `link-status ${row.linked ? "is-linked" : "is-waiting"}` },
+              row.linked ? S.linked : S.waitingLink
+            )
+          : null
       ),
       select,
+      playButton,
       uploadButton,
       fileInput
     );
@@ -266,7 +300,7 @@ export async function mountPopup({ document, stateStore, chrome, useUploadWindow
     volumeOut.textContent = percent(state.settings.volume);
 
     const sounds = buildSoundRows(state);
-    needSound.hidden = sounds.length > 0;
+    firstRun.hidden = state.rules.length > 0 || Boolean(state.settings.defaultSoundId);
     fillSelect(
       document,
       defaultSound,
@@ -282,6 +316,13 @@ export async function mountPopup({ document, stateStore, chrome, useUploadWindow
       quickSound.value || CHOICE_DEFAULT
     );
     renderChats();
+  }
+
+  /** The sound a chat's choice would play: its own, the default one, or none (silent). */
+  function soundToPlay(choice) {
+    if (choice === CHOICE_SILENT) return null;
+    const id = choice === CHOICE_DEFAULT ? state.settings.defaultSoundId : choice;
+    return id && state.sounds[id] ? id : null;
   }
 
   // ---------------------------------------------------------------- actions
@@ -332,10 +373,14 @@ export async function mountPopup({ document, stateStore, chrome, useUploadWindow
     const row = buildChatRows(state).find((r) => r.key === key);
     if (!file || !row) return;
     say(`${S.uploading} "${file.name}"…`); // proof the file arrived, before anything can fail
-    await save(async () => {
+    let duplicate = false;
+    const ok = await save(async () => {
       const sound = await stateStore.addSound(file);
+      duplicate = sound.duplicate === true;
       await applyChoice(stateStore, row, sound.id);
-    }, `Added "${file.name}" for ${row.name}.`);
+    });
+    if (ok && duplicate) say(`"${file.name}" ${S.alreadyAdded} for ${row.name}.`);
+    else if (ok) say(`Added "${file.name}" for ${row.name}.`);
     input.value = "";
     focusRow(key);
   }

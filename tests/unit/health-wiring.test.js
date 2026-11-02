@@ -117,7 +117,7 @@ describe("the bridge keeping the status record", () => {
     bridge = startBridge({
       chrome,
       document: doc,
-      engine: { play: vi.fn(), invalidate: vi.fn() },
+      engine: { play: vi.fn(async () => true), invalidate: vi.fn() }, // a sound that starts
       CustomEventCtor: CustomEvent,
     });
     await bridge.ready;
@@ -151,10 +151,10 @@ describe("the bridge keeping the status record", () => {
     expect(data.health.hook.state).toBe("missing");
   });
 
-  it("notices later when WhatsApp replaces what the hook wrapped", async () => {
+  it("notices later when WhatsApp replaces what the hook wrapped and it cannot put it back", async () => {
     await boot();
     await flush();
-    win.Notification = class WhatsAppsOwn {};
+    Object.defineProperty(win, "Notification", { value: class WhatsAppsOwn {}, writable: false });
     await vi.advanceTimersByTimeAsync(30_000);
     await flush();
     expect(data.health.hook.state).toBe("overwritten");

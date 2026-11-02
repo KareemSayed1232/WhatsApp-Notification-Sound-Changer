@@ -371,12 +371,6 @@ describe("recent senders", () => {
     ]);
   });
 
-  it("keeps the same name separate for different kinds", async () => {
-    await store.recordSender({ name: "Alice", kind: "chat" });
-    await store.recordSender({ name: "Alice", kind: "sender" });
-    expect((await store.load()).recentSenders).toHaveLength(2);
-  });
-
   it("caps the list at 50 entries", async () => {
     for (let i = 0; i < 60; i++) await store.recordSender({ name: `n${i}`, kind: "chat" });
     const list = (await store.load()).recentSenders;

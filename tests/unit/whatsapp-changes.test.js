@@ -1,17 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { withPageSounds } from "../helpers/page-sounds.js";
 import { freshDocument } from "../helpers/load-script.js";
-import { startBackground } from "../../src/background/background.mjs";
-import { startBridge } from "../../src/content/bridge.mjs";
 import { installMainHook } from "../../src/content/main-hook.mjs";
 import { applySignal, emptyHealth, healthStatus } from "../../src/core/health.mjs";
-import { decidePlayback, findRebind, findRule } from "../../src/core/matcher.mjs";
-import {
-  EVENT_ANSWER,
-  EVENT_ASK,
-  EVENT_PLAY,
-  EVENT_SIGNAL,
-  MSG_REBIND,
-} from "../../src/core/protocol.mjs";
+import { EVENT_ANSWER, EVENT_ASK, EVENT_PLAY, EVENT_SIGNAL } from "../../src/core/protocol.mjs";
 import { healthMessage } from "../../src/ui/health-ui.mjs";
 import { STRINGS as S } from "../../src/ui/strings.mjs";
 
@@ -75,6 +67,7 @@ function setupPage() {
   doc.addEventListener(EVENT_PLAY, (event) => playEvents.push(JSON.parse(event.detail)));
   doc.addEventListener(EVENT_SIGNAL, (event) => signals.push(JSON.parse(event.detail)));
   hook = installMainHook({ window: win, document: doc, now: () => clock.t });
+  withPageSounds(win, doc);
 }
 
 function teardownPage() {
@@ -139,175 +132,12 @@ describe("A1: WhatsApp asks for permission through navigator.permissions", () =>
     delete win.navigator;
     expect(() => {
       hook = installMainHook({ window: win, document: doc, now: () => clock.t });
+      withPageSounds(win, doc);
     }).not.toThrow();
   });
 });
 
 // ------------------------------------------------------------------ A2
-
-describe("A2: WhatsApp changes the ids it gives chats", () => {
-  const sounds = { s1: { id: "s1", name: "Ping" } };
-  const oldRule = {
-    id: "r1",
-    kind: "chat",
-    match: "Radwa",
-    chatId: "201000@c.us",
-    action: "sound",
-    soundId: "s1",
-    enabled: true,
-  };
-
-  describe("matching", () => {
-    it("still finds the rule by name when the id changed to a different kind of id", () => {
-      const notification = { title: "Radwa", tag: "601@lid" };
-      expect(findRule(notification, [oldRule])).toBe(oldRule);
-      expect(findRebind(notification, [oldRule])).toEqual({ ruleId: "r1", chatId: "601@lid" });
-    });
-
-    it("plays the chat's sound for the new id", () => {
-      const decision = decidePlayback({
-        notification: { title: "Radwa", tag: "601@lid" },
-        rules: [oldRule],
-        sounds,
-        settings: { enabled: true, volume: 1, defaultSoundId: null },
-      });
-      expect(decision).toMatchObject({ action: "play", soundId: "s1", ruleId: "r1" });
-    });
-
-    it("does not move a rule to another chat with the same kind of id (two people, same name)", () => {
-      const notification = { title: "Radwa", tag: "202000@c.us" };
-      expect(findRule(notification, [oldRule])).toBeNull();
-      expect(findRebind(notification, [oldRule])).toBeNull();
-    });
-
-    it("needs both a new id and the same name", () => {
-      expect(findRule({ title: "Someone else", tag: "601@lid" }, [oldRule])).toBeNull();
-      expect(findRule({ title: "Radwa", tag: "" }, [oldRule])).toBeNull();
-      expect(findRebind({ title: "Radwa", tag: "" }, [oldRule])).toBeNull();
-    });
-
-    it("prefers an exact id match, and never rebinds then", () => {
-      const lidRule = { ...oldRule, id: "r2", chatId: "601@lid", soundId: "s2" };
-      const notification = { title: "Radwa", tag: "601@lid" };
-      expect(findRule(notification, [oldRule, lidRule])).toBe(lidRule);
-      expect(findRebind(notification, [oldRule, lidRule])).toBeNull();
-    });
-
-    it("does not rebind a disabled rule, or a rule without an id", () => {
-      const notification = { title: "Radwa", tag: "601@lid" };
-      expect(findRebind(notification, [{ ...oldRule, enabled: false }])).toBeNull();
-      expect(findRebind(notification, [{ ...oldRule, chatId: null }])).toBeNull();
-    });
-  });
-
-  describe("the bridge", () => {
-    let chrome;
-    let bridge;
-    let bdoc;
-
-    beforeEach(async () => {
-      const data = {
-        settings: { enabled: true, volume: 1, defaultSoundId: null, showPopups: false },
-        sounds,
-        rules: [oldRule],
-      };
-      bdoc = freshDocument();
-      chrome = {
-        storage: {
-          local: {
-            get: vi.fn(async (keys) =>
-              Object.fromEntries(keys.filter((k) => k in data).map((k) => [k, data[k]]))
-            ),
-          },
-          onChanged: { addListener: () => {}, removeListener: () => {} },
-        },
-        runtime: { id: "ext", sendMessage: vi.fn(async () => ({ ok: true })) },
-      };
-      bridge = startBridge({
-        chrome,
-        document: bdoc,
-        engine: { play: vi.fn(), invalidate: vi.fn() },
-        CustomEventCtor: CustomEvent,
-      });
-      await bridge.ready;
-    });
-
-    afterEach(() => bridge.stop());
-
-    const ask = (payload) => {
-      let answer = null;
-      const onAnswer = (event) => (answer = JSON.parse(event.detail));
-      bdoc.addEventListener(EVENT_ANSWER, onAnswer);
-      bdoc.dispatchEvent(new CustomEvent(EVENT_ASK, { detail: JSON.stringify(payload) }));
-      bdoc.removeEventListener(EVENT_ANSWER, onAnswer);
-      return answer;
-    };
-
-    it("asks the background to move the rule to the new id", () => {
-      const answer = ask({ kind: "notification", title: "Radwa", tag: "601@lid", body: "" });
-      expect(answer.decision).toMatchObject({ action: "play", soundId: "s1" });
-      expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
-        type: MSG_REBIND,
-        ruleId: "r1",
-        chatId: "601@lid",
-      });
-    });
-
-    it("does not when the id still matches", () => {
-      ask({ kind: "notification", title: "Radwa", tag: "201000@c.us", body: "" });
-      const rebinds = chrome.runtime.sendMessage.mock.calls.filter(([m]) => m.type === MSG_REBIND);
-      expect(rebinds).toEqual([]);
-    });
-  });
-
-  describe("the background", () => {
-    let listener;
-    let stateStore;
-    const whatsapp = { id: "ext", url: "https://web.whatsapp.com/", tab: { id: 1 } };
-
-    beforeEach(() => {
-      stateStore = {
-        load: vi.fn(async () => ({})),
-        updateRule: vi.fn(async () => ({})),
-        recordSender: vi.fn(async () => {}),
-      };
-      startBackground({
-        chrome: {
-          runtime: {
-            id: "ext",
-            getURL: (p) => `chrome-extension://ext/${p}`,
-            onMessage: { addListener: (fn) => (listener = fn) },
-            onInstalled: { addListener: () => {} },
-            onStartup: { addListener: () => {} },
-          },
-        },
-        stateStore,
-        soundStore: { get: vi.fn() },
-      });
-    });
-
-    it("saves the new id on the rule", () => {
-      listener({ type: MSG_REBIND, ruleId: "r1", chatId: "601@lid" }, whatsapp, () => {});
-      expect(stateStore.updateRule).toHaveBeenCalledWith("r1", { chatId: "601@lid" });
-    });
-
-    it("ignores it from anyone else, or with a malformed id", () => {
-      listener({ type: MSG_REBIND, ruleId: "r1", chatId: "601@lid" }, { id: "other" }, () => {});
-      for (const chatId of ["no-at-sign", "", 42, null, `${"9".repeat(300)}@lid`]) {
-        listener({ type: MSG_REBIND, ruleId: "r1", chatId }, whatsapp, () => {});
-      }
-      listener({ type: MSG_REBIND, ruleId: 7, chatId: "601@lid" }, whatsapp, () => {});
-      expect(stateStore.updateRule).not.toHaveBeenCalled();
-    });
-
-    it("survives a rule that no longer exists", async () => {
-      stateStore.updateRule.mockRejectedValue(new Error("not-found"));
-      expect(() =>
-        listener({ type: MSG_REBIND, ruleId: "gone", chatId: "601@lid" }, whatsapp, () => {})
-      ).not.toThrow();
-    });
-  });
-});
 
 // ------------------------------------------------------------------ A3
 
@@ -397,7 +227,7 @@ describe("A4: WhatsApp stops playing its own sound", () => {
     vi.advanceTimersByTime(149);
     expect(playEvents).toEqual([]);
     vi.advanceTimersByTime(2);
-    expect(playEvents).toEqual([{ soundId: "s1", volume: 1 }]);
+    expect(playEvents).toEqual([expect.objectContaining({ soundId: "s1", volume: 1 })]);
     expect(signals.find((s) => s.type === "self-played")).toBeTruthy();
   });
 

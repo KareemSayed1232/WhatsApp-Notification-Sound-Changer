@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { withPageSounds } from "../helpers/page-sounds.js";
 import { freshDocument } from "../helpers/load-script.js";
 import { installMainHook } from "../../src/content/main-hook.mjs";
 import {
@@ -89,6 +90,7 @@ const whatsappNotifies = (title, options) =>
 
 function install() {
   hook = installMainHook({ window: win, document: doc, now: () => clock.t });
+  withPageSounds(win, doc);
 }
 
 beforeEach(() => {
@@ -174,22 +176,33 @@ describe("when WhatsApp renames or moves its sound", () => {
 });
 
 describe("learning the incoming-message sound", () => {
-  it("remembers a sound that followed a notification and then replaces it when the tab is focused", async () => {
-    bridgeSaysPlay();
-    whatsappNotifies("Radwa");
-    await play(RENAMED); // learned here
+  /** WhatsApp plays `url` right after a notification, twice: enough evidence to learn it. */
+  const followsTwice = async (url, chat = "Radwa") => {
+    for (let i = 0; i < 2; i++) {
+      whatsappNotifies(chat);
+      await play(url);
+      clock.t += 5_000;
+    }
+  };
+  const learned = () => JSON.parse(store.wanscLearnedSounds);
 
-    expect(JSON.parse(store.wanscLearnedSounds)).toEqual(["NewHash123.mp3"]);
+  it("remembers a sound that followed notifications and then replaces it when the tab is focused", async () => {
+    bridgeSaysPlay();
+    await followsTwice(RENAMED); // learned here
+
+    expect(learned()).toEqual({ v: 2, trusted: ["NewHash123.mp3"], seen: {} });
 
     clock.t += 5_000; // no notification this time, as when the tab is focused
     await play(RENAMED);
-    expect(playEvents).toHaveLength(2);
+    expect(playEvents).toHaveLength(3);
     expect(FakeMedia.nativePlays).toEqual([]);
     expect(signals.some((s) => s.type === "unpaired")).toBe(true);
   });
 
   it("starts with what it learned before (a fresh page load)", async () => {
-    store.wanscLearnedSounds = JSON.stringify(["NewHash123.mp3"]);
+    store.wanscLearnedSounds = JSON.stringify({ v: 2, trusted: ["NewHash123.mp3"], seen: {} });
+    hook.uninstall();
+    install();
     bridgeSaysPlay();
     await play(RENAMED);
     expect(playEvents).toHaveLength(1);
@@ -204,10 +217,12 @@ describe("learning the incoming-message sound", () => {
 
   it("survives corrupt or blocked storage", async () => {
     store.wanscLearnedSounds = "not json";
+    hook.uninstall();
+    install();
     bridgeSaysPlay();
     whatsappNotifies("a");
     await play(RENAMED);
-    expect(JSON.parse(store.wanscLearnedSounds)).toEqual(["NewHash123.mp3"]);
+    expect(learned()).toEqual({ v: 2, trusted: [], seen: { "NewHash123.mp3": 1 } });
 
     win.localStorage.setItem = () => {
       throw new Error("quota");
@@ -221,10 +236,9 @@ describe("learning the incoming-message sound", () => {
   it("keeps only the most recent few", async () => {
     bridgeSaysPlay();
     for (let i = 1; i <= 7; i++) {
-      whatsappNotifies(`chat${i}`);
-      await play(`https://static.whatsapp.net/rsrc.php/x/file${i}.mp3`);
+      await followsTwice(`https://static.whatsapp.net/rsrc.php/x/file${i}.mp3`, `chat${i}`);
     }
-    expect(JSON.parse(store.wanscLearnedSounds)).toEqual([
+    expect(learned().trusted).toEqual([
       "file3.mp3",
       "file4.mp3",
       "file5.mp3",
@@ -374,17 +388,37 @@ describe("checking itself", () => {
   };
 
   it("answers a ping when everything is in place", () => {
-    expect(ping()).toEqual({ notification: true, play: true });
+    expect(ping()).toMatchObject({ notification: true, play: true, healed: false });
   });
 
-  it("reports when WhatsApp replaced Notification", () => {
+  it("puts itself back when WhatsApp replaced Notification, and says it did", () => {
     win.Notification = class Other {};
-    expect(ping()).toMatchObject({ notification: false, play: true });
+    expect(ping()).toMatchObject({ notification: true, play: true, healed: true });
   });
 
-  it("reports when WhatsApp replaced play()", () => {
+  it("puts itself back when WhatsApp replaced play(), and says it did", () => {
     win.HTMLMediaElement.prototype.play = () => Promise.resolve();
-    expect(ping()).toMatchObject({ notification: true, play: false });
+    expect(ping()).toMatchObject({ notification: true, play: true, healed: true });
+  });
+
+  it("reports a replaced Notification it cannot put back", () => {
+    Object.defineProperty(win, "Notification", { value: class Locked {}, writable: false });
+    expect(ping()).toMatchObject({ notification: false, play: true, healed: false });
+  });
+
+  it("reports a replaced play() it cannot put back", () => {
+    const proto = win.HTMLMediaElement.prototype;
+    const before = Object.getOwnPropertyDescriptor(proto, "play");
+    Object.defineProperty(proto, "play", {
+      value: () => Promise.resolve(),
+      writable: false,
+      configurable: true,
+    });
+    try {
+      expect(ping()).toMatchObject({ notification: true, play: false, healed: false });
+    } finally {
+      Object.defineProperty(proto, "play", before); // the fake class is shared between tests
+    }
   });
 
   it("stops answering once uninstalled, which the bridge reads as 'missing'", () => {

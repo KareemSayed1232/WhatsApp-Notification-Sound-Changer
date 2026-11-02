@@ -179,7 +179,7 @@ describe("packaging", () => {
     for (const target of TARGETS) {
       const file = results[target];
       expect(path.basename(file)).toMatch(
-        new RegExp(`^whatsapp-notification-sound-changer-\\d+(\\.\\d+)*-${target}\\.zip$`)
+        new RegExp(`^sound-changer-for-whatsapp-\\d+(\\.\\d+)*-${target}\\.zip$`)
       );
       expect(existsSync(file)).toBe(true);
       expect(statSync(file).size).toBeGreaterThan(5_000);

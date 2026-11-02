@@ -1,8 +1,8 @@
 name: CI
 
 on:
+  # Every branch, so a feature branch is checked as soon as it is pushed.
   push:
-    branches: [main]
   pull_request:
 
 jobs:

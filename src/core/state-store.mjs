@@ -1,6 +1,6 @@
 import { parseDataUrl } from "./audio-data.mjs";
 import { HEALTH_KEY, sanitizeHealth } from "./health.mjs";
-import { cleanDisplayName, normalizeName } from "./normalize.mjs";
+import { cleanDisplayName, looksLikeChatName, normalizeName } from "./normalize.mjs";
 import {
   MAX_KNOWN_CHATS,
   MAX_RECENT_SENDERS,
@@ -36,14 +36,22 @@ function sanitize(raw) {
     schemaVersion: SCHEMA_VERSION,
     settings,
     sounds: isObject(raw.sounds) ? raw.sounds : {},
-    rules: Array.isArray(raw.rules) ? raw.rules.filter(isObject) : [],
+    // Rules and entries for one person inside a group are gone (they relied on guessing the
+    // sender from the notification text): dropped on read.
+    rules: Array.isArray(raw.rules)
+      ? raw.rules.filter((r) => isObject(r) && r.kind !== "sender")
+      : [],
     recentSenders: Array.isArray(raw.recentSenders)
-      ? raw.recentSenders.filter((s) => isObject(s) && typeof s.name === "string")
+      ? raw.recentSenders.filter(
+          (s) => isObject(s) && typeof s.name === "string" && s.kind !== "sender"
+        )
       : [],
     // Names read from WhatsApp's own chat list (no ids), so every chat can be offered, not only
     // the ones that have messaged you.
     knownChats: Array.isArray(raw.knownChats)
-      ? raw.knownChats.filter((c) => isObject(c) && typeof c.name === "string")
+      ? raw.knownChats.filter(
+          (c) => isObject(c) && typeof c.name === "string" && looksLikeChatName(c.name)
+        )
       : [],
   };
 }
@@ -197,11 +205,17 @@ export function createStateStore({
         validateSoundFile(file);
         const data = await file.arrayBuffer();
         validateSoundFile({ type: file.type, size: data.byteLength });
+        // The same file picked again (same name, type and size) is the sound you already have.
+        const name = file.name || "Sound";
+        const existing = Object.values(state.sounds).find(
+          (s) => s.name === name && s.mime === file.type && s.size === data.byteLength
+        );
+        if (existing) return { ...existing, duplicate: true };
         const id = generateId();
         await soundStore.put(id, { mime: file.type, data });
         const meta = {
           id,
-          name: file.name || "Sound",
+          name,
           mime: file.type,
           size: data.byteLength,
           createdAt: now(),
@@ -271,7 +285,7 @@ export function createStateStore({
         for (const raw of Array.isArray(names) ? names : []) {
           const name = cleanDisplayName(raw);
           const key = normalizeName(name);
-          if (!name || name.length > 100 || seen.has(key)) continue;
+          if (!looksLikeChatName(name) || seen.has(key)) continue;
           seen.add(key);
           fresh.push({ name });
         }
