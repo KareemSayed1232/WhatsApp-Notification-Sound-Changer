@@ -317,10 +317,10 @@ describe("every chat from WhatsApp's own chat list", () => {
   });
 });
 
-describe("people inside groups (advanced) and the last-resort box", () => {
-  it("hides the people section until someone has been seen in a group", async () => {
+describe("the last-resort box", () => {
+  it("has no section for people inside groups (that feature is gone)", async () => {
     await mount({ initial: { recentSenders }, setup: twoSounds });
-    expect($("#people").hidden).toBe(true);
+    expect($("#people")).toBeNull();
   });
 
   it("describes adding by name as the last resort and says the name must match", () => {
@@ -467,21 +467,24 @@ describe("sounds", () => {
     fire($("#soundFile"), "change");
   };
 
-  it("adds an uploaded sound and makes the first one the default", async () => {
+  // Owner's case: the first upload quietly became the default, so every chat without a sound of
+  // its own played it. An upload never changes the default; only the "Default sound" picker does.
+  it("adds an uploaded sound without making it the default", async () => {
     upload(fakeFile("ping.mp3"));
     await vi.waitFor(() => expect($$("#soundList li")).toHaveLength(1));
     const state = await store.load();
-    expect(state.settings.defaultSoundId).toBe(Object.keys(state.sounds)[0]);
+    expect(state.settings.defaultSoundId).toBeNull();
     expect(text("#message")).toMatch(/Added "ping.mp3"/);
-    expect($(".badge").textContent).toBe("Default");
+    expect($(".badge")).toBeNull();
     expect($("#defaultSound").disabled).toBe(false);
-    expect(text("#defaultHint")).toMatch(/no sound of its own/);
+    expect($("#defaultSound").value).toBe("");
   });
 
-  it("keeps the existing default when more sounds are added", async () => {
+  it("keeps the chosen default when more sounds are added", async () => {
     upload(fakeFile("a.mp3"));
     await vi.waitFor(() => expect($$("#soundList li")).toHaveLength(1));
-    const first = (await store.load()).settings.defaultSoundId;
+    const first = Object.keys((await store.load()).sounds)[0];
+    await store.setSettings({ defaultSoundId: first });
     upload(fakeFile("b.mp3"), fakeFile("c.mp3"));
     await vi.waitFor(() => expect($$("#soundList li")).toHaveLength(3));
     expect((await store.load()).settings.defaultSoundId).toBe(first);

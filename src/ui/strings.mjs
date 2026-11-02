@@ -9,7 +9,6 @@ export const STRINGS = {
   enabled: "Enabled",
   settings: "All settings",
 
-  rulesTitle: "Chats and people",
   rulesHint:
     "Pick a sound for a chat, a group, or one person inside a group. Everything else uses your default sound.",
   addRule: "Add",
@@ -65,8 +64,6 @@ export const STRINGS = {
   scanFailed: "Couldn't read your chats. Reload the WhatsApp tab and try again.",
   addByName: "Can't find a chat? Add it by name",
   addByNameHint: "Only if a chat is missing from the list. The name must match WhatsApp exactly.",
-  peopleTitle: "People inside groups (advanced)",
-  peopleHint: "Give one person their own sound in every group they write in.",
   uploadFor: "Upload your own sound for",
   uploadButton: "Upload sound",
   uploading: "Uploading",
@@ -96,19 +93,13 @@ export const STRINGS = {
   healthWorking: "Working. Last handled a message",
   healthNoSound:
     "WhatsApp keeps notifying us but plays no sound. Either WhatsApp's own sounds are turned off, or WhatsApp changed something. If you hear no sound of yours, copy the diagnostics in settings.",
-  healthAudioLocked:
-    "Your browser won't play sounds until you click once anywhere in the WhatsApp tab. Do that now, so you don't miss the next message.",
   openWhatsApp: "Open WhatsApp",
   healthPlayBlocked:
-    "Your sound couldn't play last time: the browser blocks sound until you click once in the WhatsApp tab. Click anywhere in WhatsApp to fix it. WhatsApp's own sound was used where possible.",
-  healthListUnreadable:
-    "Can't read WhatsApp's chat list, so sounds while WhatsApp is on screen and 'Refresh chats' may not work. Sounds in the background still work. WhatsApp may have changed. Copy the diagnostics in settings.",
+    "Your sound couldn't play last time: the browser blocks sound until you click once in the WhatsApp tab. Click anywhere in WhatsApp to fix it.",
   healthPlayFailed:
-    "Your sound couldn't play last time: the sound file itself failed to play. Try uploading it again, or pick another sound.",
+    "Your sound couldn't play last time: the sound file itself failed to play, so WhatsApp's own sound played instead. Try uploading it again, or pick another sound.",
   healthTitlesGeneric:
     "WhatsApp's notifications no longer say which chat a message is from, so only sounds tied to a chat (picked from your chat list) can play. WhatsApp may have changed. Copy the diagnostics in settings.",
-  healthSenderFormat:
-    "WhatsApp changed how group messages name their sender, so sounds for people in groups may not play. Copy the diagnostics in settings.",
   healthNoChatInfo:
     "WhatsApp is playing message sounds but not sending notifications, so it isn't saying which chat a message is from: only your default sound can play. To fix it, in WhatsApp Web open Settings → Notifications and turn message notifications on, then reload the WhatsApp tab.",
   healthHookMissing:

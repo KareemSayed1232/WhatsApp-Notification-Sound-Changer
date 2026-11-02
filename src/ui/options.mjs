@@ -12,7 +12,6 @@ import { STRINGS as S, errorMessage } from "./strings.mjs";
 import {
   CHOICE_DEFAULT,
   buildChatRows,
-  buildPeopleRows,
   buildSoundRows,
   chatsToShow,
   defaultSoundHint,
@@ -96,19 +95,6 @@ export async function mountOptions({
     icon(document, "refresh"),
     S.refreshChats
   );
-  const peopleList = el("ul", {
-    id: "peopleList",
-    class: "chat-list",
-    onFocusout: onChatsFocusOut,
-  });
-  const people = el(
-    "details",
-    { id: "people", class: "add-by-name", hidden: true },
-    el("summary", {}, S.peopleTitle),
-    el("p", { class: "hint" }, S.peopleHint),
-    peopleList
-  );
-
   // Add a chat by name
   const ruleName = el("input", {
     id: "ruleName",
@@ -182,7 +168,6 @@ export async function mountOptions({
         chatList,
         chatsMore,
         chatsEmpty,
-        people,
         el(
           "details",
           { class: "add-by-name", id: "addByName" },
@@ -422,10 +407,6 @@ export async function mountOptions({
           : S.chatsSearchPrompt;
     }
     chatsMore.hidden = view.more === 0;
-
-    const peopleView = chatsToShow(buildPeopleRows(state), filter);
-    peopleList.replaceChildren(...peopleView.rows.map(chatRow));
-    people.hidden = peopleView.rows.length === 0;
   }
 
   function renderAll() {
@@ -462,8 +443,7 @@ export async function mountOptions({
     }
   }
 
-  const findRow = (key) =>
-    [...buildChatRows(state), ...buildPeopleRows(state)].find((row) => row.key === key);
+  const findRow = (key) => buildChatRows(state).find((row) => row.key === key);
 
   async function onRefresh() {
     say(S.scanning);
@@ -549,9 +529,7 @@ export async function mountOptions({
       if (!outcome.ok) break;
       if (outcome.result.duplicate) already++;
       else added++;
-      if (!state.settings.defaultSoundId) {
-        await run(() => stateStore.setSettings({ defaultSoundId: outcome.result.id }));
-      }
+      // An upload never becomes the default: only the "Default sound" picker sets it.
     }
     soundFile.value = "";
     if (added + already > 0) {

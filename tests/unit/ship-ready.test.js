@@ -2,9 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { freshDocument } from "../helpers/load-script.js";
 import { createFakeSoundStore, createFakeStorage } from "../helpers/fake-storage.js";
-import { startBridge } from "../../src/content/bridge.mjs";
 import { applySignal, emptyHealth, healthStatus } from "../../src/core/health.mjs";
 import { createStateStore } from "../../src/core/state-store.mjs";
 import { healthMessage, mountHealth } from "../../src/ui/health-ui.mjs";
@@ -62,21 +60,6 @@ function makeChrome({ tabs = [{ id: 7, windowId: 3, active: false }] } = {}) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-function bridgeChrome(data) {
-  return {
-    storage: {
-      local: {
-        get: vi.fn(async (keys) =>
-          Object.fromEntries(keys.filter((k) => k in data).map((k) => [k, data[k]]))
-        ),
-        set: vi.fn(async (items) => Object.assign(data, items)),
-      },
-      onChanged: { addListener: () => {}, removeListener: () => {} },
-    },
-    runtime: { id: "ext", sendMessage: vi.fn(async () => ({ ok: true })) },
-  };
-}
-
 // ------------------------------------------------------------------ the same sound twice
 
 describe("uploading the same sound twice", () => {
@@ -102,36 +85,21 @@ describe("uploading the same sound twice", () => {
 // ------------------------------------------------------------------ Firefox: click once
 
 describe("the browser blocking sound until a click", () => {
-  it("is its own status, before any sound was missed", () => {
-    const h = applySignal(emptyHealth(), { type: "audio", locked: true }, 5);
-    expect(healthStatus(h)).toEqual({ code: "audio-locked", level: "warn" });
-    expect(healthMessage(h, 10).text).toBe(S.healthAudioLocked);
+  it("is its own status once the browser blocks one of our sounds", () => {
+    const h = applySignal(emptyHealth(), { type: "play-blocked" }, 5);
+    expect(healthStatus(h)).toEqual({ code: "play-blocked", level: "warn" });
+    expect(healthMessage(h, 10).text).toBe(S.healthPlayBlocked);
   });
 
-  it("clears after a click, or once a sound of ours plays", () => {
-    const locked = applySignal(emptyHealth(), { type: "audio", locked: true }, 5);
-    expect(healthStatus(applySignal(locked, { type: "audio", locked: false }, 6)).code).toBe(
-      "waiting"
-    );
-    expect(healthStatus(applySignal(locked, { type: "played" }, 6)).code).toBe("waiting");
+  it("clears once a sound of ours plays", () => {
+    const blocked = applySignal(emptyHealth(), { type: "play-blocked" }, 5);
+    expect(healthStatus(applySignal(blocked, { type: "played" }, 6)).code).toBe("waiting");
   });
 
-  it("says nothing when sound is allowed", async () => {
-    vi.useFakeTimers();
-    try {
-      const data = { settings: { enabled: true }, sounds: {}, rules: [] };
-      const bridge = startBridge({
-        chrome: bridgeChrome(data),
-        document: freshDocument(),
-        engine: { play: vi.fn(), invalidate: vi.fn(), canPlay: () => true },
-        CustomEventCtor: CustomEvent,
-      });
-      await vi.advanceTimersByTimeAsync(5_000);
-      expect(data.health?.audioLocked ?? false).toBe(false);
-      bridge.stop();
-    } finally {
-      vi.useRealTimers();
-    }
+  it("a failed sound clears once a sound of ours plays (it never sticks)", () => {
+    const failed = applySignal(emptyHealth(), { type: "play-failed" }, 5);
+    expect(healthStatus(failed).code).toBe("play-failed");
+    expect(healthStatus(applySignal(failed, { type: "played" }, 6)).code).toBe("waiting");
   });
 });
 
@@ -145,7 +113,7 @@ describe("the status line offers to open WhatsApp when a click is needed", () =>
   }
 
   it("shows an Open WhatsApp button that brings the WhatsApp tab to the front", async () => {
-    const chrome = await mountWith({ audioLocked: true });
+    const chrome = await mountWith({ blockedRun: 1 });
     expect($("#openWhatsApp").hidden).toBe(false);
     $("#openWhatsApp").click();
     await vi.waitFor(() => expect(chrome.tabs.update).toHaveBeenCalledWith(7, { active: true }));

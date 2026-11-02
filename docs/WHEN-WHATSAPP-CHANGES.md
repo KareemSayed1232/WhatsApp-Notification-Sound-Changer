@@ -1,77 +1,65 @@
 # When WhatsApp changes
 
 WhatsApp Web is not an API. It changes without notice, and this extension reaches into it. This page
-lists exactly what we rely on, how each piece copes when WhatsApp moves it, and how to find out fast
-when something does break. Nothing here can promise that no update will ever break the extension; the
-aim is that most changes are absorbed, and the rest are noticed in minutes and fixed in one place.
+lists exactly what we rely on, what happens when WhatsApp moves it, and how to find out fast when
+something breaks. The full audit (browsers, stores, this project) is in
+[WEAK-POINTS.md](WEAK-POINTS.md).
 
 ## What we depend on
 
-| Dependency                                                                  | If WhatsApp changes it                                                                                                                                                                      | Where                                     |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| It raises `new Notification(title, {tag: chatId})` for each message         | The chat is matched by `tag` first, then by title (name). If `tag` stops being a chat id, name rules still work. A service-worker `showNotification()` from the page is handled the same way. | `main-hook.mjs`, `matcher.mjs`            |
-| It plays its message sound a few ms after the notification (`Audio.play()`) | The sound is recognised by what it does: an audio element that is not in the page, played within an adaptive window (0.5–2 s, learned from WhatsApp's measured delay) of a notification. A new file name, host or file type is absorbed.                   | `main-hook.mjs` (`decideForElement`)      |
-| The sound file name (`BS_BUUXbKq5.mp3`)                                     | Only needed when the tab is focused (no notification is raised then). A sound that follows a notification is **learned**, so a renamed file heals itself after the next background message. | `main-hook.mjs` (`learn`), `protocol.mjs` |
-| Sound played through Web Audio instead of an `<audio>` element              | Watched only after notifications repeatedly arrive with no `<audio>` sound, or once it has been seen working. **Unverified against real WhatsApp**: a fallback for a change not yet seen.    | `main-hook.mjs` (`wrappedStart`)          |
-| The chat list in the DOM (`#pane-side`, row roles, `data-testid`s)          | A self-teaching page model (`page-model.mjs`) with learned, built-in, structural and label layers, checked by a contract of 9 markup variants. If everything fails, chats are still learned from messages as they arrive.                                       | `chat-list.mjs`                           |
-| The unread counter on a chat row (`data-testid="icon-unread-count"`), used while WhatsApp is focused (Firefox raises no notification and plays no sound then) | Falls back to an "N unread" label. If neither is found, focused messages stay silent in Firefox (as before); background messages are unaffected. | `chat-list.mjs` (`readUnreadCounts`), `unread-watcher.mjs` |
-| Notifications raised by WhatsApp's own service worker (from a push)         | **Cannot be intercepted**: they never pass through the page. If WhatsApp moves entirely to push notifications, this approach stops working for background tabs.                             | n/a                                       |
+Sounds are decided **only** from what WhatsApp itself does. Nothing on WhatsApp's page (chat list,
+badges, icons) decides a sound.
 
-For the full pre-release audit (browsers, stores and this project too) see [WEAK-POINTS.md](WEAK-POINTS.md).
+| Dependency                                                                  | If WhatsApp changes it                                                                                                                                       | Where                                   |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| It raises `new Notification(title, {tag: chatId})` from the page            | Without it no chat is named: only your default sound can play (status "no-chat-info"). `registration.showNotification()` from the page is handled the same.   | `main-hook.mjs`, `bridge.mjs`           |
+| `tag` is the chat's unique id (`…@lid`, `…@g.us`)                           | Rules tied to an id stop matching. Rules made by name still match the exact title until they bind.                                                            | `matcher.mjs`                           |
+| `title` is the chat's name                                                  | Only used to bind a name-made rule once. A title shared by 3+ chats is treated as generic and never binds (status "titles-generic").                          | `bridge.mjs` (`isGenericTitle`)         |
+| It plays its message sound with `Audio.play()` a few ms after the notification | The sound is recognised by host and type, or as a detached element right after a notification. Late sounds (up to 3 s) still pair once. Status "no-sound".  | `main-hook.mjs` (`decideForElement`)    |
+| The sound file name (`BS_BUUXbKq5.mp3`)                                     | Only needed while WhatsApp is focused (no notification). A file that follows a notification twice is learned, so a rename heals itself.                       | `main-hook.mjs` (`learn`), `protocol.mjs` |
+| Web Audio instead of an `<audio>` element                                   | Watched only after notifications repeatedly come with no `<audio>` sound. **Not verified against real WhatsApp.**                                             | `main-hook.mjs` (`wrappedStart`)        |
+| WhatsApp's page allowing `blob:` audio (its content security policy)        | Your sounds can't play in the page: WhatsApp's own ding plays instead. Checked on real WhatsApp, Nov 2026.                                                    | `main-hook.mjs` (`playOwn`)             |
+| The chat list markup (`#pane-side`, rows, `span[title]`)                    | Only **Refresh chat list** stops (display). Sounds are unaffected.                                                                                           | `chat-list.mjs`                         |
+| Notifications from WhatsApp's service worker (push, tab closed)             | **Cannot be intercepted**: they never pass through the page.                                                                                                 | n/a                                     |
 
 Everything fails **open**: if anything unexpected happens inside the hook, WhatsApp behaves exactly as
-if the extension were not installed. A WhatsApp update can make the extension stop _helping_; it
-should not make WhatsApp stop _working_.
+if the extension were not installed.
 
 ## How a break is noticed
 
 The popup shows a status line, and the settings page has an "Is it working?" card:
 
-| Status                                         | Meaning                                                                                          |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Working. Last handled a message _N_ ago        | A notification was followed by a sound and we handled it.                                        |
-| Waiting for a message                          | Nothing has happened yet.                                                                        |
-| WhatsApp keeps notifying us but plays no sound | 3+ notifications in a row with no sound after them: WhatsApp changed, or its own sounds are off. |
-| Can't reach the WhatsApp page                  | The page hook is not answering (WhatsApp tab needs a reload, or the hook cannot run).            |
-| WhatsApp replaced something we rely on         | WhatsApp overwrote `Notification` or `play()` and locked it, so the hook could not put itself back (an ordinary replacement is undone at the next 30 s check). |
-
-The hook is checked every 30 seconds with a ping, so a change that happens mid-session is caught too.
+| Status                                         | Meaning                                                                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Working. Last handled a message _N_ ago        | WhatsApp's sound was handled.                                                                                 |
+| Waiting for a message                          | Nothing has happened yet.                                                                                     |
+| WhatsApp plays sounds but sends no notifications | WhatsApp's own notifications are off (or WhatsApp stopped raising them): only the default sound can play.   |
+| WhatsApp keeps notifying us but plays no sound | 3+ notifications in a row with no sound after them: WhatsApp changed, or its own sounds are off.              |
+| Can't reach the WhatsApp page                  | The page hook is not answering (reload the WhatsApp tab).                                                     |
+| WhatsApp replaced something we rely on         | WhatsApp overwrote `Notification` or `play()` and locked it (an ordinary replacement is undone every 30 s).   |
 
 ## Diagnosing a break
 
-0. Settings → Troubleshooting → **Run a self-test** in the WhatsApp tab: it says which part failed
-   (page hook, chat list, unread counters, sound). If the chat list or counters fail, also press
-   **Copy page layout**: the anonymised markup goes straight into
-   `tests/fixtures/whatsapp-chat-list.html` or a new variant in `markup-contract.test.js`.
-
-1. Settings -> "Is it working?" -> **Copy diagnostics**. It contains the extension version, browser,
-   counts, and the _shape_ of what WhatsApp did (kind of chat id, sound host and file type, whether the
-   sound element was detached). It contains **no** chat names, ids, messages, sound names or URLs.
-2. For detail, in the WhatsApp tab console run `localStorage.wanscDebug = "1"`, reload, and read the
-   `[WANSC]` lines. They show the notification, the sound, and the decision, without message text.
-3. Compare against the table above to see which dependency moved:
-   - `notifications` rising but `soundsHandled` flat: the sound is no longer recognised. Look at
-     `whatsappShapes.sound` (host, type, route) and at the `[WANSC]` lines.
+1. Settings → Troubleshooting → **Run a self-test** in the WhatsApp tab: page hook, enabled, chat
+   list, sounds handed to the page.
+2. **Copy diagnostics**: version, browser, counts and the _shape_ of what WhatsApp did (kind of chat
+   id, sound host and type). No names, ids or messages.
+3. For detail, in the WhatsApp tab console run `localStorage.wanscDebug = "1"`, reload, and read the
+   `[WANSC]` lines: each notification, WhatsApp's sound, and the decision (`ruleId: null` means no
+   rule matched, so the default sound or WhatsApp's own played).
+4. Compare with the table above:
+   - `notifications` rising but `soundsHandled` flat: the sound is no longer recognised
+     (`whatsappShapes.sound`).
+   - `backgroundSoundsWithoutChatInARow` rising: WhatsApp's notifications are off or gone.
    - hook `missing` or `overwritten`: the hook could not install, or WhatsApp replaced it.
-   - nothing counted at all while messages arrive: WhatsApp no longer calls `Notification` from the
-     page (service-worker push).
-
-## Two sounds, or a sound that comes late
-
-- `secondSoundsStopped` rising: two parts noticed one message and the gate kept it to one sound
-  (expected now and then). If you still hear two, the second is probably not ours: WhatsApp's own
-  sound (unrecognised file: see `whatsappShapes.sound`) or the browser's notification sound.
-- `lateSoundsDropped` rising: the tab was frozen (Edge sleeping tabs or efficiency mode), so
-  sounds that would have come late were dropped. Exclude web.whatsapp.com from sleeping tabs.
 
 ## Fixing it
 
-- A new sound host/type: widen `SOUND_HOST` / `SOUND_FILE` in `src/core/protocol.mjs`.
-- A new sound route: add a wrapper in `installMainHook`, following `wrappedStart`, and a scenario in
+- A new sound host or type: widen `SOUND_HOST` / `SOUND_FILE` in `src/core/protocol.mjs`.
+- A new sound route: add a wrapper in `installMainHook`, following `wrappedStart`, with a scenario in
   `tests/unit/main-hook-resilience.test.js`.
-- A new chat-list structure: capture it, add it to `tests/fixtures/whatsapp-chat-list.html` or as
-  a new variant in `tests/unit/markup-contract.test.js`, and make the contract pass (usually in
-  `src/content/page-model.mjs`). The contract runs every reader against every variant.
+- A new chat-list structure (Refresh chat list only): **Copy page layout**, add it to
+  `tests/fixtures/whatsapp-chat-list.html`, and fix `src/content/chat-list.mjs`.
 
-Every change should start as a failing scenario in `tests/unit/main-hook-resilience.test.js` that models
-what WhatsApp now does, so the same break cannot come back unnoticed.
+Every change starts as a failing test that models what WhatsApp now does, so the same break cannot
+come back unnoticed.

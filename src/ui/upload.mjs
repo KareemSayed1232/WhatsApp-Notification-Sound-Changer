@@ -2,7 +2,7 @@ import { applyChoice } from "./chat-actions.mjs";
 import { h } from "./dom.mjs";
 import { icon } from "./icons.mjs";
 import { STRINGS as S, errorMessage } from "./strings.mjs";
-import { buildChatRows, buildPeopleRows } from "./view-model.mjs";
+import { buildChatRows } from "./view-model.mjs";
 
 /**
  * A tiny window for uploading one sound for one chat. The toolbar popup opens it where the browser
@@ -17,9 +17,7 @@ export async function mountUpload({ document, stateStore, search, closeAfterMs =
   const key = new win.URLSearchParams(search ?? win.location.search).get("chat");
 
   const state = await stateStore.load();
-  const row = key
-    ? [...buildChatRows(state), ...buildPeopleRows(state)].find((r) => r.key === key)
-    : null;
+  const row = key ? buildChatRows(state).find((r) => r.key === key) : null;
 
   const status = el("p", {
     class: "toast",
@@ -83,8 +81,7 @@ export async function mountUpload({ document, stateStore, search, closeAfterMs =
     say(`${S.uploading} "${file.name}"…`); // proof the file arrived, before anything can fail
     try {
       const fresh = await stateStore.load();
-      const current =
-        [...buildChatRows(fresh), ...buildPeopleRows(fresh)].find((r) => r.key === key) ?? row;
+      const current = buildChatRows(fresh).find((r) => r.key === key) ?? row;
       const sound = await stateStore.addSound(file);
       await applyChoice(stateStore, current, sound.id);
       say(`Added "${file.name}" for ${row.name}. ${S.uploadClosing}`);

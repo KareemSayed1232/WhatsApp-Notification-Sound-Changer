@@ -105,55 +105,8 @@ export function readChatNames(root) {
 
 // The unread counter on a chat row (captured Oct 2026: <span data-testid="icon-unread-count"
 // aria-label="2 unread messages">2</span>). The label is a fallback; it is in the UI language.
+// Never read as a chat's name.
 export const UNREAD_SELECTOR = '[data-testid="icon-unread-count"]';
-export const UNREAD_LABEL = /\bunread\b/i;
-// A muted chat's row carries <… data-testid="mute-notifications-refreshed" aria-label="Muted chat">
-// (captured Oct 2026). Any test id or icon mentioning "mute" counts, so a renamed marker still
-// does; the English label is a last fallback.
-// "unmute"/"unmuted" icons contain "mute" too, and mean the opposite.
-export const MUTED_MARKER =
-  '[data-testid*="mute" i]:not([data-testid*="unmute" i]), ' +
-  '[data-icon*="mute" i]:not([data-icon*="unmute" i])';
-export const MUTED_LABEL = '[aria-label="Muted chat" i]';
-const MUTED_SELECTOR = `${MUTED_MARKER}, ${MUTED_LABEL}`;
-
-function unreadCountOf(row) {
-  const badge =
-    row.querySelector(UNREAD_SELECTOR) ??
-    [...row.querySelectorAll("[aria-label]")].find((el) =>
-      UNREAD_LABEL.test(el.getAttribute("aria-label"))
-    );
-  if (!badge) return 0;
-  // Only a number counts: a "marked as unread" dot is the user's doing, not a new message.
-  const text = badge.textContent.trim();
-  if (/^\d+$/.test(text)) return Number(text);
-  const fromLabel = /(\d+)/.exec(badge.getAttribute("aria-label") ?? "");
-  return fromLabel ? Number(fromLabel[1]) : 0;
-}
-
-/**
- * Every rendered chat with its unread number and whether it is muted, keyed by normalized name:
- * Map(key -> { name, count, muted }). The Archived / Locked chats entries are left out.
- */
-export function readUnreadCounts(root) {
-  const counts = new Map();
-  const pane = findChatPane(root);
-  if (!pane) return counts;
-  for (const row of pane.querySelectorAll(ROW_SELECTOR)) {
-    const name = nameFromRow(row);
-    if (!name || name.length > MAX_NAME_LENGTH) continue;
-    const key = normalizeName(name);
-    const count = unreadCountOf(row);
-    const muted = row.querySelector(MUTED_SELECTOR) !== null;
-    const seen = counts.get(key);
-    counts.set(key, {
-      name: seen?.name ?? name,
-      count: Math.max(seen?.count ?? 0, count),
-      muted: Boolean(seen?.muted) || muted,
-    });
-  }
-  return counts;
-}
 
 const sleep = (ms) => new Promise((resolve) => globalThis.setTimeout(resolve, ms));
 

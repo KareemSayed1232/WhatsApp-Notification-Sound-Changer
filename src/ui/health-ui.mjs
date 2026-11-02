@@ -18,18 +18,12 @@ export function healthMessage(health, now) {
       };
     case "no-sound":
       return { level: status.level, text: S.healthNoSound };
-    case "audio-locked":
-      return { level: status.level, text: S.healthAudioLocked };
     case "play-blocked":
       return { level: status.level, text: S.healthPlayBlocked };
-    case "list-unreadable":
-      return { level: status.level, text: S.healthListUnreadable };
     case "play-failed":
       return { level: status.level, text: S.healthPlayFailed };
     case "titles-generic":
       return { level: status.level, text: S.healthTitlesGeneric };
-    case "sender-format":
-      return { level: status.level, text: S.healthSenderFormat };
     case "no-chat-info":
       return { level: status.level, text: S.healthNoChatInfo };
     case "hook-missing":
@@ -194,7 +188,7 @@ ${answer.html}`;
       line.className = `health health-${level}`;
       line.textContent = text;
       const code = healthStatus(health).code;
-      openButton.hidden = code !== "audio-locked" && code !== "play-blocked";
+      openButton.hidden = code !== "play-blocked";
     } catch {
       // The status line is a nicety: leave whatever it showed.
     }

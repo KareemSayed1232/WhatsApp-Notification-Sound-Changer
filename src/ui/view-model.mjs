@@ -23,9 +23,8 @@ export function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** "Group" for WhatsApp group ids, "Person in a group" for sender rules, otherwise "Chat". */
+/** "Group" for WhatsApp group ids, otherwise "Chat". */
 export function kindLabel(kind, chatId) {
-  if (kind === "sender") return "Person in a group";
   return typeof chatId === "string" && chatId.endsWith("@g.us") ? "Group" : "Chat";
 }
 
@@ -284,45 +283,4 @@ export function chatsToShow(rows, query, limit = MAX_SHOWN) {
     more: Math.max(0, matches.length - limit),
     searching: true,
   };
-}
-
-/**
- * People inside groups ("Alice, in any group"). Advanced: kept out of the main list because the
- * same person usually also shows up as a chat, which is what made rows look repeated.
- */
-export function buildPeopleRows(state, filterText = "") {
-  const needle = normalizeName(filterText);
-  const people = new Map();
-  const person = (name, fromRule) => {
-    const key = normalizeName(name);
-    if (!people.has(key)) people.set(key, { key, name, rules: [], lastSeen: 0, fromRule });
-    return people.get(key);
-  };
-
-  for (const entry of state.recentSenders) {
-    if (entry.kind !== "sender") continue;
-    const p = person(entry.name, false);
-    p.lastSeen = Math.max(p.lastSeen, entry.lastSeen ?? 0);
-  }
-  for (const rule of state.rules) {
-    if (rule.kind === "sender") person(rule.match, true).rules.push(rule);
-  }
-
-  const all = [...people.values()];
-  return all
-    .filter((p) => !p.fromRule)
-    .concat(all.filter((p) => p.fromRule).sort((a, b) => a.name.localeCompare(b.name)))
-    .map((p) =>
-      toRow({
-        key: `sender|${p.key}`,
-        name: p.name,
-        kind: "sender",
-        kindText: kindLabel("sender"),
-        targets: [{ chatId: null, ruleId: p.rules[0]?.id ?? null }],
-        rules: p.rules,
-        sounds: state.sounds,
-        lastSeen: p.lastSeen,
-      })
-    )
-    .filter((row) => !needle || normalizeName(row.name).includes(needle));
 }

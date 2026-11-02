@@ -13,7 +13,6 @@ import {
   MSG_GET_SOUND,
   MSG_REBIND,
   MSG_SEEN,
-  PAGE_MODEL_KEY,
 } from "../core/protocol.mjs";
 import { readState } from "../core/state-store.mjs";
 
@@ -33,6 +32,8 @@ const HOOK_CHECK_MS = 30_000;
 // A notification title shared by this many different chats is not a chat's name (e.g. WhatsApp
 // hiding names): rules are then never tied to a chat by it.
 const GENERIC_TITLE_CHATS = 3;
+// The stored keys that change what plays.
+const DECIDING_KEYS = ["settings", "rules", "sounds"];
 
 const text = (value) => (typeof value === "string" ? value : "");
 
@@ -73,6 +74,7 @@ export function startBridge({
   let soundsWanted = 0;
   let soundsHanded = 0;
   let handing = 0;
+  let handedSignature = null;
   // Which chat ids each notification title came with, to spot titles that are not chat names.
   const tagsByTitle = new Map();
 
@@ -175,8 +177,15 @@ export function startBridge({
    */
   async function handSoundsToPage() {
     if (!state) return;
-    const mine = ++handing;
     const ids = soundsInUse();
+    // The same sounds as last time, all handed over: nothing to do. (Fetching them again would
+    // move up to 2 MB per sound and replace copies the page may be playing right now.)
+    const signature = ids
+      .map((id) => `${id}:${state.sounds[id].size}:${state.sounds[id].createdAt}`)
+      .sort()
+      .join("|");
+    if (signature === handedSignature) return;
+    const mine = ++handing;
     const sounds = [];
     for (const id of ids) {
       try {
@@ -195,6 +204,8 @@ export function startBridge({
       document.dispatchEvent(
         new CustomEventCtor(EVENT_SOUNDS, { detail: JSON.stringify({ sounds }) })
       );
+      // A partial hand-over is tried again at the next change.
+      handedSignature = sounds.length === ids.length ? signature : null;
       log("handed", sounds.length, "of", ids.length, "sounds to the page");
     } catch {
       // The page hook keeps what it had.
@@ -203,8 +214,9 @@ export function startBridge({
 
   function onStorageChanged(changes, area) {
     if (area !== "local") return;
-    // Our own status writes do not change any rule.
-    if (Object.keys(changes).every((key) => key === HEALTH_KEY || key === PAGE_MODEL_KEY)) return;
+    // Only these decide a sound. Recent chats change with every notification, and the status
+    // record with every message: neither needs a re-read.
+    if (!Object.keys(changes).some((key) => DECIDING_KEYS.includes(key))) return;
     refresh();
   }
 
@@ -259,7 +271,6 @@ export function startBridge({
         const notification = {
           title: text(question.title),
           tag: text(question.tag),
-          body: text(question.body),
         };
         const generic = isGenericTitle(notification);
         reportSeen(notification, generic);

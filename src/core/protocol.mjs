@@ -18,13 +18,9 @@ export const EVENT_SIGNAL = "wansc:signal";
 // Bridge -> hook: "are you still installed and in place?" The hook answers with EVENT_PONG.
 export const EVENT_PING = "wansc:ping";
 export const EVENT_PONG = "wansc:pong";
-// Bridge -> hook: play WhatsApp's own incoming-message sound (used while WhatsApp is focused, so
-// every browser sounds the same even where WhatsApp itself plays nothing).
-// Bridge -> hook: we are playing a sound ourselves; keep WhatsApp's own incoming sound quiet for
-// { ms } (capped by the hook).
-export const EVENT_QUIET = "wansc:quiet";
 // Bridge -> hook: the sounds in use, { sounds: [{ id, dataUrl }] }, played by the hook itself.
 export const EVENT_SOUNDS = "wansc:sounds";
+// Play WhatsApp's own incoming-message sound.
 export const EVENT_PLAY_NATIVE = "wansc:play-native";
 
 // chrome.runtime messages from the bridge to the background worker.

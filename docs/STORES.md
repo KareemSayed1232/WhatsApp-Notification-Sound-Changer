@@ -67,10 +67,10 @@ with WhatsApp or Meta.
 > Works while WhatsApp Web is open in a browser tab. When the tab or browser is closed, WhatsApp's
 > background notification plays your browser's normal sound, and no extension can change that.
 >
-> Know who's writing without looking: give each chat, group or person in a group its own sound.
+> Know who's writing without looking: give each chat or group its own sound.
 >
 > - Upload your own sounds (mp3, wav, ogg, m4a, up to 2 MB) or use one default sound for everything.
-> - Make chats silent. Chats muted in WhatsApp stay silent.
+> - Make chats silent. Chats muted in WhatsApp stay silent, exactly as in WhatsApp.
 > - Hides WhatsApp's desktop pop-ups so only the sound plays (you can turn them back on).
 > - A status line tells you if something stops working after a WhatsApp update.
 > - Everything stays on your device: no servers, no analytics, no tracking.

@@ -100,7 +100,8 @@ describe("notifications", () => {
     const stub = new win.Notification("Radwa", { tag: "601@lid", body: "hi" });
 
     expect(FakeNotification.instances).toHaveLength(0);
-    expect(asked).toEqual([{ kind: "notification", title: "Radwa", tag: "601@lid", body: "hi" }]);
+    // The message text never leaves the page: the extension is told the chat, nothing else.
+    expect(asked).toEqual([{ kind: "notification", title: "Radwa", tag: "601@lid" }]);
     expect(stub instanceof FakeNotification).toBe(true);
     expect(stub.title).toBe("Radwa");
     expect(stub.tag).toBe("601@lid");
@@ -144,7 +145,7 @@ describe("notifications", () => {
   it("copes with a missing title and options", () => {
     connectBridge(() => managed({ action: "native" }));
     expect(() => new win.Notification()).not.toThrow();
-    expect(asked[0]).toEqual({ kind: "notification", title: "", tag: "", body: "" });
+    expect(asked[0]).toEqual({ kind: "notification", title: "", tag: "" });
   });
 });
 

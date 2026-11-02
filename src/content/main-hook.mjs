@@ -5,7 +5,6 @@ import {
   EVENT_PING,
   EVENT_PLAY,
   EVENT_PLAY_NATIVE,
-  EVENT_QUIET,
   EVENT_SOUNDS,
   EVENT_PONG,
   EVENT_SIGNAL,
@@ -34,8 +33,6 @@ const MAX_SELF_PLAY_MS = 1000;
 // A known incoming sound this soon after a notification it missed is that notification's, late.
 const LATE_LOOKBACK_MS = 3000;
 const PERMISSION_CACHE_MS = 1000;
-// The longest the bridge may ask WhatsApp's own sound to stay quiet after one of ours.
-const MAX_QUIET_MS = 3000;
 const MAX_LEARNED = 5;
 // A WhatsApp sound is learned as "the incoming sound" only after following a notification this
 // many times: once could be another WhatsApp sound (e.g. "message sent" when replying quickly).
@@ -102,8 +99,6 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
   let insideNotification = false;
   let insidePlay = false;
 
-  // Until when WhatsApp's own incoming sound is kept quiet, because we just played one of ours.
-  let quietUntil = -Infinity;
   let pending = null;
   // The last notification, kept a little longer than `pending`: a WhatsApp sound arriving later
   // than the pairing window still belongs to it, if no sound has claimed it yet.
@@ -464,11 +459,11 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
    * it (and starts waiting for its sound), or null when it should go through untouched.
    */
   function consult(title, options) {
+    // Only the chat (its name and id). The message text never leaves the page.
     const answer = ask({
       kind: "notification",
       title: title == null ? "" : String(title),
       tag: typeof options?.tag === "string" ? options.tag : "",
-      body: typeof options?.body === "string" ? options.body : "",
     });
 
     debug("notification", { title: String(title ?? ""), tag: options?.tag }, "->", answer);
@@ -561,13 +556,6 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
 
   /** The decision for a WhatsApp sound, or null to leave it alone. */
   function takeDecision(url, meta) {
-    // We just played a sound ourselves for this message: WhatsApp's own would be a second one.
-    if (now() < quietUntil && isKnownIncomingSound(url, learnedFiles())) {
-      if (recent) recent.claimed = true;
-      clearPending();
-      debug("WhatsApp's sound right after ours: kept quiet");
-      return { action: "silent" };
-    }
     const paired = freshPending();
     clearPending();
     if (paired) paired.claimed = true;
@@ -801,8 +789,22 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
       if (Number.isFinite(decision.volume))
         audio.volume = Math.min(1, Math.max(0, decision.volume));
       // Its own play(): our wrapper passes your sound straight through (it is not WhatsApp's).
+      // It can still fail after starting: the browser blocks sound until a click, or the file
+      // can't be decoded. Then WhatsApp's own ding plays (never silence) and the status line says.
       const result = audio.play();
-      if (result && typeof result.catch === "function") result.catch(() => {});
+      if (result && typeof result.then === "function") {
+        result.then(
+          () => signal({ type: "played" }),
+          (error) => {
+            const blocked = error?.name === "NotAllowedError";
+            debug("your sound did not play:", error?.name);
+            signal({ type: blocked ? "play-blocked" : "play-failed" });
+            if (!blocked) onPlayNative();
+          }
+        );
+      } else {
+        signal({ type: "played" });
+      }
       debug("played your sound", decision.soundId);
       // Tell whoever listens (the debug log, tests) which sound played. Nothing acts on it.
       dispatch(EVENT_PLAY, {
@@ -815,17 +817,6 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
       return false;
     }
   }
-
-  /** The bridge is playing a sound itself: keep WhatsApp's own incoming sound quiet a moment. */
-  function onQuiet(event) {
-    try {
-      const ms = Number(JSON.parse(event.detail)?.ms);
-      if (ms > 0) quietUntil = now() + Math.min(ms, MAX_QUIET_MS);
-    } catch {
-      // Ignore a malformed request.
-    }
-  }
-  document.addEventListener(EVENT_QUIET, onQuiet);
 
   /**
    * Something replaced our wrappers: wrap what is there now and put ours back on top, so the
@@ -892,7 +883,6 @@ export function installMainHook({ window, document, now = () => Date.now() }) {
         }
       }
       library.clear();
-      document.removeEventListener(EVENT_QUIET, onQuiet);
       try {
         if (OriginalNotification) window.Notification = OriginalNotification;
       } catch {

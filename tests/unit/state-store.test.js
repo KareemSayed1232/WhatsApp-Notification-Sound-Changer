@@ -163,9 +163,12 @@ describe("rules", () => {
     expect(await codeOf(store.addRule({ kind: "chat", match: " ALICE ", action: "silent" }))).toBe(
       "duplicate-rule"
     );
-    await expect(
-      store.addRule({ kind: "sender", match: "Alice", action: "silent" })
-    ).resolves.toBeTruthy();
+  });
+
+  it("refuses rules for one person inside a group (that feature is gone)", async () => {
+    expect(await codeOf(store.addRule({ kind: "sender", match: "Alice", action: "silent" }))).toBe(
+      "invalid-kind"
+    );
   });
 
   it("updates a rule and re-validates it", async () => {
@@ -176,7 +179,7 @@ describe("rules", () => {
     expect((await store.load()).rules[0].match).toBe("Alicia");
   });
 
-  it("stores a chat id on chat rules, drops it from sender rules, and de-duplicates by id", async () => {
+  it("stores a chat id on chat rules and de-duplicates by id", async () => {
     const chat = await store.addRule({
       kind: "chat",
       match: "Radwa",
@@ -184,13 +187,6 @@ describe("rules", () => {
       action: "silent",
     });
     expect(chat.chatId).toBe("601@lid");
-    const sender = await store.addRule({
-      kind: "sender",
-      match: "Bob",
-      chatId: "ignored@lid",
-      action: "silent",
-    });
-    expect(sender.chatId).toBeNull();
 
     // Same chat id under a new display name is the same chat.
     expect(

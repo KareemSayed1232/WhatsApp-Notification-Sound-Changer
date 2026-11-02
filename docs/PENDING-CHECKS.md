@@ -41,29 +41,24 @@ replace.
 
 ## Edge and Firefox on Windows (regression after each phase)
 
-- [ ] Background: a chat with its own sound plays it; a muted chat is silent.
-- [ ] Focused (another chat open): the chat's sound, else the default, else WhatsApp's ding; one
-      sound only.
+- [x] Background: a chat with its own sound plays it **once**; a muted chat is silent; an @mention
+      in a muted group plays as WhatsApp would (checked 2 Nov 2026, Edge).
+- [x] Focused on another chat: WhatsApp plays nothing, so neither does the extension (WhatsApp's
+      own behaviour).
+- [x] WhatsApp's notifications turned off: the status line says "plays message sounds but not
+      sending notifications".
 - [ ] Two chats with the same name show as two rows once each has messaged in the background.
+- [ ] A chat added by name shows "Waiting for first message", then "Linked ✓" after it messages.
 - [ ] **Upload sound**: Firefox opens the small window, Edge the inline picker.
-- [ ] Settings → **Troubleshooting** → **Copy diagnostics**: `status` is `working`, `chatList` says `builtin`.
+- [ ] Uploading a sound in Settings does **not** make it the default.
+- [ ] Settings → **Troubleshooting** → **Copy diagnostics**: `status` is `working`.
 - [ ] New install (no sounds, no rules): the popup shows the three **Get started** steps; they hide
       once a chat has a sound or a default sound is set.
 - [ ] **Play** on a chat row plays that chat's sound (or the default); it is greyed out for Silent.
 - [ ] Uploading the same file twice: "was already added", and Settings lists it once.
-- [ ] Firefox: reload WhatsApp, don't click it, open the popup within a few seconds: "won't play
-      sounds until you click once" with **Open WhatsApp**; the button jumps to the tab; after a
-      click in WhatsApp the warning goes away.
-- [ ] Settings → Troubleshooting → **Run a self-test** with WhatsApp open: every line ✓ (the
-      sound line ✗ until you click once in WhatsApp in Firefox).
+- [ ] Firefox: after reloading WhatsApp, click once in the tab; then a chat's sound plays.
+- [ ] Settings → Troubleshooting → **Run a self-test** with WhatsApp open: every line ✓.
 - [ ] **Copy page layout**: paste it somewhere and check it contains no chat names or messages.
-- [ ] Background backup: with the WhatsApp tab in the background, a chat with its own sound plays
-      it **once** (not twice). Check the diagnostics: `soundsFromChatList` stays 0 while WhatsApp
-      notifies normally.
-- [ ] Edge, WhatsApp in the background: several private messages in a row, each plays **one**
-      sound. Diagnostics: `secondSoundsStopped` may rise; `soundsFromChatList` stays 0.
-- [ ] A private chat you never muted keeps its sound in the focused tab after a few background
-      messages (it is no longer learned as muted by mistake).
 - [ ] Background for 10+ minutes (Edge slows background tabs): messages still play their sound.
 - [ ] Settings footer: "Not affiliated with WhatsApp or Meta" and **Report a problem** opens the
       GitHub issues page.

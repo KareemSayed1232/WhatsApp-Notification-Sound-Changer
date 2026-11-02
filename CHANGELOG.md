@@ -1,45 +1,38 @@
 # 3.0.0 - unreleased (beta)
 
-**Your sounds play in WhatsApp's own kind of player.** The sounds in use are handed to WhatsApp's page when it opens; when WhatsApp plays its ding, your sound plays at once in a player WhatsApp's page creates. No separate audio engine, nothing loaded at the moment a message arrives, and if your sound is not there WhatsApp's own plays: never silence.
-
-**Sound logic: follow WhatsApp, never guess from its page.** Sounds are decided only from what
-WhatsApp itself does: its notification (which names the chat by its unique id) and its message
-sound. With a notification, the chat's own sound plays; WhatsApp's sound with no notification
-(WhatsApp focused) gets your default sound; when WhatsApp makes no sound, neither does the
-extension. Removed: reading the chat list, unread badges and mute icons to decide sounds, learned
-mutes, the background backup, holding sounds, rules for one person inside a group, and moving
-rules between chats by name. "Refresh chat list" stays, for showing chats in the popup only; a
-rule made from a listed name is tied to the chat's id at its first notification.
-
 Renamed **Sound Changer for WhatsApp**. A rewrite of the original by mejia-dev.
 
-- A different sound per chat, group or person in a group, plus a default sound, Silent, or
-  WhatsApp's own sound.
+**How it decides a sound: it follows WhatsApp and never guesses from its page.** It reacts only to
+what WhatsApp itself does. When WhatsApp raises a notification, which names the chat by its unique
+id, that chat's sound plays. When WhatsApp plays its sound with no notification (WhatsApp focused),
+your default sound plays, or WhatsApp's own. When WhatsApp makes no sound, neither does the
+extension, so mutes and @mentions behave exactly as in WhatsApp.
+
+**Your sounds play inside the WhatsApp tab.** The sounds in use are handed to the WhatsApp page when
+it opens, and play there the moment WhatsApp plays its ding. If your sound isn't there, WhatsApp's
+own plays: never silence.
+
+- A different sound per chat or group, plus a default sound, Silent, or WhatsApp's own sound.
+- An uploaded sound never becomes the default by itself: you pick the default.
+- Chats you add by name are tied to the chat's id at its first notification, and the popup shows
+  "Linked ✓" or "Waiting for first message".
+- Two chats with the same name are kept apart.
 - Hides WhatsApp's desktop pop-ups, so only the sound plays (optional).
-- Respects chats muted in WhatsApp, including ones muted before the extension was installed.
-- Keeps two chats with the same name apart.
-- Sounds while the WhatsApp tab is focused, too.
 - Firefox (desktop) support. Firefox for Android is experimental.
-- A status line, plus a Troubleshooting section with copyable diagnostics (no names or messages).
+- A status line, including when WhatsApp's own notifications are off (then only the default sound
+  can play), plus a Troubleshooting section: **Copy diagnostics** (no names or messages),
+  **Run a self-test** and **Copy page layout** (names and messages replaced).
 - First-run steps and a **Play** button on each chat in the popup.
-- Tells you when the browser needs one click in WhatsApp before it can play sound, with an
-  **Open WhatsApp** button.
 - Uploading the same sound file twice keeps one copy.
-- Lower CPU use while WhatsApp is open.
-- Less dependent on WhatsApp:
-  - the chat list backs up WhatsApp's notifications in the background;
-  - the hook puts itself back if WhatsApp replaces what it wrapped;
-  - a WhatsApp sound up to 3 s late still gets the right chat's sound.
-- One sound per message: every sound goes through one gate (one per chat per message, never two
-  a moment apart, never one that comes late after the tab was frozen). Chat-list messages are
-  matched to WhatsApp's notifications by chat instead of by a 2-second window, so a message seen
-  late in a background tab no longer causes a second sound or a false "muted".
-- Guesses about WhatsApp's page are checked before they are trusted or saved: the unread badge
-  is never read as a chat's name, WhatsApp's "message sent" sound is never learned as the incoming
-  sound, a rule is never moved to another chat that merely shares its name, and an "unmute" icon
-  is not a mute marker.
-- Troubleshooting: **Run a self-test**, and **Copy page layout** (names and messages replaced) for
-  bug reports.
+- The page hook puts itself back if WhatsApp replaces what it wrapped, and a WhatsApp sound up to
+  3 s late still gets the right chat's sound. One sound per message.
+- If your sound fails to play (a file the browser can't decode), WhatsApp's own plays instead and
+  the status line says so; a block until you click is reported too. Both clear once a sound plays.
+- Only the chat's name and id leave WhatsApp's page, never the message text.
+- Your sounds are handed to the WhatsApp page only when they change, not on every message.
+- Removed: rules for one person inside a group, and everything that read WhatsApp's page to decide
+  a sound (unread badges, mute icons, learned mutes, the background backup). "Refresh chat list"
+  stays, only to show chats in the popup.
 - Support through GitHub issues. Safari and macOS aren't supported.
 
 # 2.0 - 2026-03-08

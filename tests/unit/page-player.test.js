@@ -7,6 +7,7 @@ import {
   EVENT_ASK,
   EVENT_PING,
   EVENT_PONG,
+  EVENT_SIGNAL,
   EVENT_SOUNDS,
   MSG_GET_SOUND,
 } from "../../src/core/protocol.mjs";
@@ -26,11 +27,16 @@ describe("the page hook plays your sound in WhatsApp's own kind of player", () =
   let hook;
   let played; // every player that actually started: { src, volume }
   let answer;
+  let failYours; // error name your sound fails with, or null
+  let signals;
 
   beforeEach(() => {
     vi.useFakeTimers();
     doc = freshDocument();
     played = [];
+    failYours = null;
+    signals = [];
+    doc.addEventListener(EVENT_SIGNAL, (e) => signals.push(JSON.parse(e.detail).type));
     class FakeMedia {
       constructor(src = "") {
         this.src = src;
@@ -39,6 +45,9 @@ describe("the page hook plays your sound in WhatsApp's own kind of player", () =
         this.volume = 1;
       }
       play() {
+        if (failYours && this.src.startsWith("blob:")) {
+          return Promise.reject(Object.assign(new Error("no"), { name: failYours }));
+        }
         played.push({ src: this.src, volume: this.volume });
         return Promise.resolve();
       }
@@ -127,6 +136,42 @@ describe("the page hook plays your sound in WhatsApp's own kind of player", () =
     giveSounds([{ id: "x", dataUrl: "data:text/html;base64,PGI+" }, { id: 7 }, null]);
     notify();
     return whatsappDings().then(() => expect(played).toEqual([{ src: KNOWN, volume: 1 }]));
+  });
+
+  it("your sound playing is reported, which clears an earlier failure from the status line", async () => {
+    giveSounds([{ id: "s1", dataUrl: DATA_URL }]);
+    notify();
+    await whatsappDings();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(signals).toContain("played");
+  });
+
+  it("your sound failing after it starts (a file that can't be decoded): WhatsApp's ding plays, and it is reported", async () => {
+    failYours = "NotSupportedError";
+    giveSounds([{ id: "s1", dataUrl: DATA_URL }]);
+    notify();
+    await whatsappDings();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(played).toEqual([{ src: KNOWN, volume: 1 }]);
+    expect(signals).toContain("play-failed");
+    expect(signals).not.toContain("played");
+  });
+
+  it("the browser blocking sound until a click is reported as blocked", async () => {
+    failYours = "NotAllowedError";
+    giveSounds([{ id: "s1", dataUrl: DATA_URL }]);
+    notify();
+    await whatsappDings();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(signals).toContain("play-blocked");
+    expect(signals).not.toContain("play-failed");
+  });
+
+  it("ignores the old 'keep quiet' request: no page script can mute WhatsApp's ding", async () => {
+    doc.dispatchEvent(new CustomEvent("wansc:quiet", { detail: JSON.stringify({ ms: 3000 }) }));
+    answer = () => null;
+    await whatsappDings();
+    expect(played).toEqual([{ src: KNOWN, volume: 1 }]);
   });
 
   it("says how many sounds it holds when checked", () => {
@@ -224,6 +269,23 @@ describe("the bridge hands the sounds in use to the page", () => {
     for (const fn of listeners) fn({ rules: { newValue: data.rules } }, "local");
     await vi.advanceTimersByTimeAsync(10);
     expect(ids(handed.at(-1))).toEqual(["s2", "s3"]);
+  });
+
+  it("does not fetch the sounds again when only the recent chats change (every notification)", async () => {
+    await boot();
+    for (const fn of listeners) fn({ recentSenders: { newValue: [] } }, "local");
+    for (const fn of listeners) fn({ knownChats: { newValue: [] } }, "local");
+    await vi.advanceTimersByTimeAsync(10);
+    expect(handed).toHaveLength(1);
+    expect(fetched.sort()).toEqual(["s1", "s2"]);
+  });
+
+  it("does not fetch the sounds again when a rule changes but uses the same sounds", async () => {
+    await boot();
+    data.rules[0].match = "Radwa M";
+    for (const fn of listeners) fn({ rules: { newValue: data.rules } }, "local");
+    await vi.advanceTimersByTimeAsync(10);
+    expect(handed).toHaveLength(1);
   });
 
   it("needs no audio engine of its own", async () => {

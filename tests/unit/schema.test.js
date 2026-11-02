@@ -39,8 +39,13 @@ describe("validateRule", () => {
 
   it("accepts a valid rule", () => {
     expect(() => validateRule(good)).not.toThrow();
-    expect(() => validateRule({ kind: "sender", match: "Bob", action: "silent" })).not.toThrow();
     expect(() => validateRule({ kind: "chat", match: "Bob", action: "default" })).not.toThrow();
+  });
+
+  it("rejects rules for one person inside a group (that feature is gone)", () => {
+    expect(codeOf(() => validateRule({ kind: "sender", match: "Bob", action: "silent" }))).toBe(
+      "invalid-kind"
+    );
   });
 
   it("rejects an empty or whitespace-only match", () => {

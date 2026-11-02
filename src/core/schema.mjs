@@ -6,7 +6,8 @@ export const MAX_MATCH_LENGTH = 200;
 export const MAX_RECENT_SENDERS = 50;
 export const MAX_KNOWN_CHATS = 500;
 
-export const RULE_KINDS = ["chat", "sender"];
+// Rules are per chat (a chat id or a chat name). Rules for one person inside a group are gone.
+export const RULE_KINDS = ["chat"];
 export const RULE_ACTIONS = ["sound", "silent", "default"];
 
 const SOUND_MIME_TYPES = new Set([
