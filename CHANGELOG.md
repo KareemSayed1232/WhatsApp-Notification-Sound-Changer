@@ -16,7 +16,8 @@ own plays: never silence.
 - An uploaded sound never becomes the default by itself: you pick the default.
 - Chats you add by name are tied to the chat's id at its first notification, and the popup shows
   "Linked ✓" or "Waiting for first message".
-- Two chats with the same name are kept apart.
+- Two chats with the same name are kept apart. A group is always one row: other ids seen under
+  the name of your only group with that name are folded into it, and get its sound.
 - Hides WhatsApp's desktop pop-ups, so only the sound plays (optional).
 - Firefox (desktop) support. Firefox for Android is experimental.
 - A status line, including when WhatsApp's own notifications are off (then only the default sound

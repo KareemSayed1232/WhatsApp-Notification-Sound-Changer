@@ -5,8 +5,8 @@ import { createStateStore } from "../../src/core/state-store.mjs";
 import { applyChoice } from "../../src/ui/chat-actions.mjs";
 import { CHOICE_DEFAULT, buildChatRows } from "../../src/ui/view-model.mjs";
 
-// Two different chats with the same name (two groups called "Family", or a group and a person)
-// must be two rows, each with its own sound. One person seen under an old and a new kind of id
+// Two different chats with the same name (two groups called "Family", or two people) must be two
+// rows, each with its own sound. Under a name with exactly one group, every id is that group. One person seen under an old and a new kind of id
 // (WhatsApp moved contacts from "@c.us" to "@lid") must stay ONE row.
 
 const NOW = 10_000_000;
@@ -48,24 +48,54 @@ describe("one row per real chat", () => {
     ]);
   });
 
-  it("a group and a person with the same name are two rows", () => {
+  // Owner's report (3 Nov 2026): one group "Study Group" showed as a Group row plus two stale
+  // "Chat" rows with the same name. Under one group's name, every other id joins that group.
+  it("a group's name shows ONE group row, with any other ids under that name folded in", () => {
     const rows = rowsOf({
-      recentSenders: [seen("Family", "111@g.us", 1), seen("Family", "5@lid", 0)],
+      recentSenders: [
+        seen("Study Group", "120@g.us", 0),
+        seen("Study Group", "5@lid", 540),
+        seen("Study Group", "6@lid", 1440),
+      ],
     });
-    expect(rows.map((r) => r.kindLabel)).toEqual([
-      "Chat · last message just now",
-      "Group · last message 1 minute ago",
-    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].kindLabel).toBe("Group");
+    expect(rows[0].targets.map((t) => t.chatId).sort()).toEqual(["120@g.us", "5@lid", "6@lid"]);
   });
 
-  it("a group recognised by behaviour counts as a group", () => {
+  it("a choice on that one group row gives the group's sound to every id folded into it", async () => {
+    const store = createStateStore({
+      storage: createFakeStorage({
+        recentSenders: [seen("Study Group", "120@g.us", 0), seen("Study Group", "5@lid", 540)],
+        sounds,
+      }),
+      soundStore: createFakeSoundStore(),
+    });
+    const [row] = buildChatRows(await store.load(), "", NOW);
+    await applyChoice(store, row, "s1");
+    const state = await store.load();
+    for (const tag of ["120@g.us", "5@lid"]) {
+      const notification = { title: "Study Group", tag };
+      expect(decidePlayback({ notification, ...state }).soundId).toBe("s1");
+    }
+  });
+
+  it("a group recognised by behaviour counts as a group, and absorbs same-name ids", () => {
     const rows = rowsOf({
       recentSenders: [seen("Team", "7@lid", 1, { group: true }), seen("Team", "8@lid", 5)],
     });
-    expect(rows.map((r) => r.kindLabel)).toEqual([
-      "Group · last message 1 minute ago",
-      "Chat · last message 5 minutes ago",
-    ]);
+    expect(rows.map((r) => r.kindLabel)).toEqual(["Group"]);
+  });
+
+  it("two groups with the same name plus another id stay apart (no group is guessed)", () => {
+    const rows = rowsOf({
+      recentSenders: [
+        seen("Family", "111@g.us", 1),
+        seen("Family", "222@g.us", 2),
+        seen("Family", "5@lid", 3),
+      ],
+    });
+    expect(rows).toHaveLength(3);
   });
 
   it("two people with the same name are two rows", () => {

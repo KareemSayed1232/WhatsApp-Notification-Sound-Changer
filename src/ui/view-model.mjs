@@ -123,6 +123,10 @@ function chatsUnder(g) {
   const isGroupId = (id) => id.endsWith("@g.us") || g.idSeen.get(id)?.group === true;
   const seenAt = (id) => g.idSeen.get(id)?.lastSeen ?? 0;
   const groupIds = g.ids.filter(isGroupId);
+  // One group under this name: every other id seen with the name is folded into it, so the group
+  // is one row (the owner saw one group as a Group row plus stale "Chat" rows). With two or more
+  // groups, nothing is guessed.
+  if (groupIds.length === 1) return [g.ids];
   const people = g.ids.filter((id) => !isGroupId(id));
   const current = people.filter((id) => !PHONE_ID.test(id));
   const phone = people.filter((id) => PHONE_ID.test(id));

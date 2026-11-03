@@ -17,7 +17,8 @@
 - **No pop-ups.** WhatsApp's desktop pop-ups are hidden and only the sound plays. You can turn
   pop-ups back on in settings.
 - **Respects mute.** Chats you muted in WhatsApp stay silent.
-- **Two chats with the same name** are kept apart once each has messaged you.
+- **Two chats with the same name** are kept apart once each has messaged you. A group shows as
+  one row, even if WhatsApp named it under more than one id.
 - **Tells you when something is wrong.** The popup has a status line, and settings has a
   Troubleshooting section with a diagnostics report you can copy.
 - Your sounds and settings stay on your device. Nothing is sent anywhere ([privacy](PRIVACY.md)).
